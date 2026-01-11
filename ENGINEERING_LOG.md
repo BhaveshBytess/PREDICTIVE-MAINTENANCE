@@ -74,3 +74,41 @@
 * **Key Learning:** For integration tests against shared databases, use session scope with unique identifiers rather than aggressive cleanup between tests.
 
 ---
+
+## [Phase 3] - Server-Side power_kw Computation
+
+* **Context:** Designing the ingestion API endpoint schema.
+* **The Hurdle:** Design decision needed: Should clients be allowed to provide `power_kw`, or should it always be server-computed?
+* **The Solution:** Enforced **server-side only** computation. The API:
+  1. Rejects requests that include `power_kw` (returns 422)
+  2. Computes `power_kw = (V × I × PF) / 1000` on every ingestion
+  3. Returns the computed value in the response
+* **Key Learning:** Server-side computation of derived signals prevents client-side data corruption and ensures formula consistency across all data sources.
+
+---
+
+## [Phase 3] - Pydantic Strict Mode vs JSON Datetime
+
+* **Context:** FastAPI endpoint receiving JSON payload with ISO-8601 timestamp string.
+* **The Hurdle:** With `ConfigDict(strict=True)`, Pydantic rejected valid datetime strings:
+  ```
+  'datetime_type', 'msg': 'Input should be a valid datetime', 'input': '2026-01-11T11:51:21+00:00'
+  ```
+* **The Solution:** Removed `strict=True` from model config. Pydantic's default mode parses datetime strings from JSON correctly. Field validators still enforce UTC requirement.
+* **Key Learning:** Pydantic's strict mode requires exact Python types; remove it when accepting JSON input that needs type coercion.
+
+---
+
+## [Phase 3] - UUID Version Validation
+
+* **Context:** Validating that event_id is a proper UUIDv4.
+* **The Hurdle:** `UUID(string, version=4)` does NOT validate version—it just sets the version bits. A UUIDv1 string was accepted.
+* **The Solution:** Parse without version parameter, then check `uuid_obj.version != 4`. This properly reads the version bits from the input string.
+  ```python
+  uuid_obj = UUID(v)  # Don't pass version
+  if uuid_obj.version != 4:
+      raise ValueError(...)
+  ```
+* **Key Learning:** Python's UUID constructor's `version` param is for creation, not validation. Check `.version` after parsing to validate.
+
+---
