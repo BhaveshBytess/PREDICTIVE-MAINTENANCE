@@ -1,0 +1,43 @@
+[Unit]
+Description=Predictive Maintenance Backend API
+Documentation=https://github.com/BhaveshBytess/PREDICTIVE-MAINTENANCE
+After=network.target influxdb.service
+Wants=influxdb.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/predictive-maintenance
+
+# Environment
+Environment="PATH=/opt/predictive-maintenance/venv/bin"
+Environment="PYTHONPATH=/opt/predictive-maintenance"
+
+# InfluxDB Configuration (override via /etc/default/predictive-maintenance)
+Environment="INFLUXDB_URL=http://localhost:8086"
+Environment="INFLUXDB_ORG=predictive_maintenance"
+Environment="INFLUXDB_BUCKET=sensor_data"
+# Token should be set via EnvironmentFile for security
+EnvironmentFile=-/etc/default/predictive-maintenance
+
+# Application
+ExecStart=/opt/predictive-maintenance/venv/bin/uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
+
+# Resilience - Auto restart on failure
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=predictive-maintenance
+
+# Security hardening (optional)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/predictive-maintenance/backend/models
+
+[Install]
+WantedBy=multi-user.target

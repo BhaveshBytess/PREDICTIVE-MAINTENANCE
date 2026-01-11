@@ -195,3 +195,14 @@
 * **Key Learning:** For auditability, reports must be immutable snapshots. Never recompute historical assessments.
 
 ---
+
+## [Phase 11] - Dual Deployment Strategy
+
+* **Context:** Deploying the system for real-world readiness.
+* **The Hurdle:** Some environments prefer Docker, others prefer bare-metal Linux with systemd.
+* **The Solution:** Provide BOTH deployment options:
+  - Docker: `docker-compose up -d` with restart policies
+  - Bare-Metal: `setup_linux.sh` + `backend.service` with `Restart=always`
+* **Key Learning:** Production readiness means supporting multiple deployment strategies. Systemd provides resilience equivalent to Docker's restart policies.
+
+---
