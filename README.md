@@ -1,1 +1,353 @@
-# PREDICTIVE-MAINTENANCE
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/FastAPI-0.100+-green?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/React-18+-blue?style=for-the-badge&logo=react&logoColor=white" alt="React">
+  <img src="https://img.shields.io/badge/InfluxDB-2.7+-purple?style=for-the-badge&logo=influxdb&logoColor=white" alt="InfluxDB">
+  <img src="https://img.shields.io/badge/Docker-Ready-blue?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
+</p>
+
+<h1 align="center">🔧 Predictive Maintenance System</h1>
+
+<p align="center">
+  <strong>Industrial Asset Health Monitoring with ML-Powered Anomaly Detection</strong>
+</p>
+
+<p align="center">
+  Real-time sensor monitoring • Isolation Forest anomaly detection • Health scoring • PDF/Excel reporting
+</p>
+
+---
+
+## 📋 Overview
+
+An end-to-end **Predictive Maintenance** system that monitors industrial assets (motors, pumps, compressors) in real-time and predicts maintenance needs before failures occur.
+
+### Key Capabilities
+
+| Feature | Description |
+|---------|-------------|
+| 🔌 **Sensor Ingestion** | Real-time voltage, current, power factor, vibration data via REST API |
+| 📊 **Feature Engineering** | Rolling means, spike detection, efficiency scores, RMS calculations |
+| 🤖 **Anomaly Detection** | Isolation Forest model trained on healthy baseline data |
+| ❤️ **Health Assessment** | 0-100 health score with risk classification (LOW → CRITICAL) |
+| 💡 **Explainability** | Human-readable explanations: "Vibration 3.2σ above normal" |
+| 📈 **Dashboard** | React + Recharts real-time visualization with glassmorphism UI |
+| 📄 **Reporting** | PDF Health Certificates and Excel exports |
+
+---
+
+## 🏗️ Architecture
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                        Frontend (React)                        │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────┐  │
+│  │ Metrics  │ │  Chart   │ │  Health  │ │  Explanations    │  │
+│  │  Cards   │ │ Recharts │ │  Summary │ │     Panel        │  │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────────────┘  │
+└────────────────────────────┬───────────────────────────────────┘
+                             │ HTTP/JSON
+┌────────────────────────────▼───────────────────────────────────┐
+│                     Backend (FastAPI)                          │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐   │
+│  │   Ingest     │ │   Features   │ │    ML Pipeline       │   │
+│  │   /ingest    │ │   Engine     │ │  Baseline → Detector │   │
+│  └──────────────┘ └──────────────┘ └──────────────────────┘   │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐   │
+│  │   Health     │ │  Explainer   │ │    Report            │   │
+│  │   Assessor   │ │   Engine     │ │    Generator         │   │
+│  └──────────────┘ └──────────────┘ └──────────────────────┘   │
+└────────────────────────────┬───────────────────────────────────┘
+                             │
+┌────────────────────────────▼───────────────────────────────────┐
+│                    InfluxDB (Time-Series)                      │
+│              sensor_data • features • anomalies                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🚀 Quick Start
+
+### Option 1: Docker (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/BhaveshBytess/PREDICTIVE-MAINTENANCE.git
+cd PREDICTIVE-MAINTENANCE
+
+# Copy environment file
+cp .env.example .env
+
+# Start all services
+docker-compose up -d
+
+# Access the application
+# Frontend: http://localhost:3000
+# Backend:  http://localhost:8000
+# InfluxDB: http://localhost:8086
+```
+
+### Option 2: Local Development
+
+```bash
+# Backend Setup
+python -m venv venv
+.\venv\Scripts\activate      # Windows
+source venv/bin/activate     # Linux/Mac
+
+pip install -r requirements.txt
+uvicorn backend.api.main:app --reload
+
+# Frontend Setup (separate terminal)
+cd frontend
+npm install
+npm run dev
+```
+
+### Option 3: Bare-Metal Linux
+
+```bash
+# Run setup script (creates venv, installs deps, configures systemd)
+sudo ./scripts/setup_linux.sh
+
+# Check service status
+sudo systemctl status predictive-maintenance
+```
+
+---
+
+## 📁 Project Structure
+
+```
+predictive-maintenance/
+├── backend/
+│   ├── api/                 # FastAPI routes & schemas
+│   │   ├── main.py          # Application instance
+│   │   ├── routes.py        # /ingest, /health endpoints
+│   │   └── schemas.py       # Pydantic models
+│   ├── db/                  # InfluxDB client
+│   ├── features/            # Feature engineering
+│   │   ├── calculator.py    # Rolling means, spikes, RMS
+│   │   └── engine.py        # Orchestration
+│   ├── ml/                  # Machine Learning
+│   │   ├── baseline.py      # Healthy data profiling
+│   │   ├── detector.py      # Isolation Forest
+│   │   └── validation.py    # 3-Sigma validation
+│   ├── rules/               # Business logic
+│   │   ├── assessor.py      # Health scoring & risk
+│   │   └── explainer.py     # Human-readable explanations
+│   └── reports/             # PDF/Excel generation
+│       └── generator.py     # ReportLab + Pandas
+├── frontend/
+│   ├── src/
+│   │   ├── components/      # React components
+│   │   │   ├── Header/
+│   │   │   ├── MetricCard/
+│   │   │   ├── SignalChart/
+│   │   │   ├── HealthSummary/
+│   │   │   ├── InsightPanel/
+│   │   │   └── OperatorLog/
+│   │   ├── hooks/           # usePolling
+│   │   └── api/             # API client
+│   └── Dockerfile           # Multi-stage nginx build
+├── tests/                   # 97+ unit tests
+├── scripts/
+│   ├── setup_linux.sh       # Bare-metal Linux setup
+│   └── backend.service      # Systemd unit file
+├── docker-compose.yml       # Full stack deployment
+├── Dockerfile               # Backend container
+└── ENGINEERING_LOG.md       # Decision journal
+```
+
+---
+
+## 🔌 API Reference
+
+### Ingest Sensor Data
+
+```http
+POST /ingest
+Content-Type: application/json
+
+{
+  "event_id": "uuid-v4",
+  "timestamp": "2026-01-12T00:00:00Z",
+  "asset_id": "Motor-01",
+  "sensor_data": {
+    "voltage_v": 230.5,
+    "current_a": 12.3,
+    "power_factor": 0.92,
+    "vibration_g": 0.15
+  }
+}
+```
+
+### Health Check
+
+```http
+GET /health
+
+Response: { "status": "healthy", "db_connected": true }
+```
+
+---
+
+## 🧠 ML Pipeline
+
+### Feature Engineering
+
+| Feature | Formula | Window |
+|---------|---------|--------|
+| `voltage_rolling_mean_1h` | Mean of voltage over 1 hour | Past-only |
+| `current_spike_count` | Points > 3σ from local mean | 10-point window |
+| `power_factor_efficiency_score` | `(PF - 0.8) / 0.2 * 100` | Instantaneous |
+| `vibration_intensity_rms` | √(mean(vibration²)) | Past-only |
+
+### Anomaly Detection
+
+- **Algorithm**: Isolation Forest (sklearn)
+- **Training**: Healthy data only (validated by baseline)
+- **Scoring**: Inverted sigmoid: `score = 1 - sigmoid(decision * 4)`
+  - `0.0` = Normal
+  - `1.0` = Anomalous
+
+### Health Assessment
+
+```python
+health_score = 100 * (1.0 - anomaly_score)
+
+# Risk Classification
+if health_score < 25:  risk = CRITICAL
+elif health_score < 50: risk = HIGH
+elif health_score < 75: risk = MODERATE
+else:                   risk = LOW
+```
+
+---
+
+## 📊 Dashboard
+
+<p align="center">
+  <strong>Dark theme with glassmorphism • Real-time charts • Color-coded risk levels</strong>
+</p>
+
+**Features:**
+- 🟢 Live status indicator with pulse animation
+- 📊 Recharts line graph with anomaly markers (ReferenceLine)
+- 🎯 SVG health gauge (0-100)
+- 💡 AI explanations with confidence bars
+- 📥 PDF/Excel download button
+
+---
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run specific test module
+pytest tests/test_features.py -v
+pytest tests/test_detector.py -v
+pytest tests/test_assessor.py -v
+pytest tests/test_reports.py -v
+
+# Coverage report
+pytest tests/ --cov=backend --cov-report=html
+```
+
+**Test coverage by module:**
+
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| Feature Engineering | 20 | ✅ |
+| Baseline Construction | 14 | ✅ |
+| Anomaly Detection | 14 | ✅ |
+| Health Assessment | 21 | ✅ |
+| Explainability | 13 | ✅ |
+| Reporting | 15 | ✅ |
+
+---
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+```env
+# InfluxDB
+INFLUXDB_HOST=localhost
+INFLUXDB_PORT=8086
+INFLUXDB_ORG=predictive_maintenance
+INFLUXDB_BUCKET=sensor_data
+INFLUXDB_TOKEN=your-token-here
+
+# Frontend (browser-accessible URL)
+VITE_API_URL=http://localhost:8000
+```
+
+### Docker Compose Services
+
+| Service | Port | Description |
+|---------|------|-------------|
+| `influxdb` | 8086 | Time-series database |
+| `backend` | 8000 | FastAPI application |
+| `frontend` | 3000 | React dashboard (nginx) |
+
+All services have `restart: unless-stopped` for resilience.
+
+---
+
+## 📖 Engineering Decisions
+
+Key architectural decisions are documented in [`ENGINEERING_LOG.md`](ENGINEERING_LOG.md):
+
+- **Phase 4**: NaN for cold-start windows (prevents false zeros)
+- **Phase 6**: Inverted sigmoid for anomaly score semantics
+- **Phase 7**: Deterministic health formula with named thresholds
+- **Phase 8**: Epsilon rule for practical significance
+- **Phase 9**: Pure renderer pattern (frontend displays, backend computes)
+- **Phase 10**: Snapshot rule for auditable reports
+- **Phase 11**: Dual deployment (Docker + systemd)
+
+---
+
+## 🛡️ Production Deployment
+
+### Docker
+```bash
+docker-compose up -d
+```
+
+### Systemd (Linux)
+```bash
+sudo ./scripts/setup_linux.sh
+sudo systemctl status predictive-maintenance
+```
+
+**Resilience features:**
+- Docker: `restart: unless-stopped`
+- Systemd: `Restart=always`, `RestartSec=5`
+- Health checks on all services
+
+---
+
+## 📜 License
+
+This project is for educational and demonstration purposes.
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing`)
+3. Commit changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing`)
+5. Open a Pull Request
+
+---
+
+<p align="center">
+  <strong>Built with ❤️ for Industrial IoT</strong>
+</p>
