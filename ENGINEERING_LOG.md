@@ -183,3 +183,15 @@
 * **Key Learning:** Keep calculation logic in ONE place (backend). Frontend should be a dumb display layer. This prevents drift and ensures consistency.
 
 ---
+
+## [Phase 10] - Snapshot Rule for Auditable Reports
+
+* **Context:** Generating PDF/Excel reports for download.
+* **The Hurdle:** Should reports compute health scores at request time, or use stored values?
+* **The Solution:** **Snapshot Rule** — Reports use persisted HealthReport data ONLY. No recalculation.
+  - Protects audit trail integrity
+  - Report shows exactly what system "thought" at recorded timestamp
+  - Prevents drift between dashboard and downloaded report
+* **Key Learning:** For auditability, reports must be immutable snapshots. Never recompute historical assessments.
+
+---
