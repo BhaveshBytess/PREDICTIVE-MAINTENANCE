@@ -159,3 +159,14 @@
 * **Key Learning:** For explainability, prefer simple deterministic formulas over complex weighted models. Magic numbers should be named constants.
 
 ---
+
+## [Phase 8] - Epsilon Rule for Explanations
+
+* **Context:** Generating explanations based on feature deviations from baseline.
+* **The Hurdle:** High z-scores can occur with negligible absolute differences (e.g., 0.5% difference with tiny std).
+* **The Solution:** Epsilon Rule: ignore features where `|diff| < 1% of mean` regardless of z-score.
+  - Also handle std=0 explicitly to prevent division by zero
+  - Top 3 contributors only to avoid overwhelming users
+* **Key Learning:** Statistical significance (z-score) isn't enough for explainability. Practical significance (absolute difference) matters more to users.
+
+---
