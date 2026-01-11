@@ -4,9 +4,7 @@ ML Module — Machine Learning Components (Phase 5+)
 Public API:
 - BaselineProfile: Statistical profile for an asset
 - BaselineBuilder: Constructs baselines from healthy data
-- save_baseline / load_baseline: JSON persistence
-- validate_baseline: Profile completeness check
-- check_data_against_baseline: 3-Sigma validation
+- AnomalyDetector: Isolation Forest anomaly scoring
 """
 
 from .baseline import (
@@ -24,6 +22,11 @@ from .validation import (
     ValidationResult,
     get_expected_range,
 )
+from .detector import (
+    AnomalyDetector,
+    AnomalyScore,
+    FEATURE_COLUMNS,
+)
 
 __all__ = [
     "BaselineProfile",
@@ -37,4 +40,7 @@ __all__ = [
     "check_data_against_baseline",
     "ValidationResult",
     "get_expected_range",
+    "AnomalyDetector",
+    "AnomalyScore",
+    "FEATURE_COLUMNS",
 ]

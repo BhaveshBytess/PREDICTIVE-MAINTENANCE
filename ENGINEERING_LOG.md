@@ -135,3 +135,15 @@
 * **Key Learning:** Baseline purity is critical. Always have an explicit "truth" marker (is_fault_injected) to separate healthy from faulty data.
 
 ---
+
+## [Phase 6] - Score Inversion for Anomaly Detection
+
+* **Context:** Implementing anomaly detection scoring with Isolation Forest.
+* **The Hurdle:** Scikit-learn's `decision_function` outputs HIGHER values for NORMAL data. Our contract requires 0=Normal, 1=Anomalous.
+* **The Solution:** Applied sigmoid transformation and inversion: `score = 1.0 - sigmoid(decision_value * 4)`. This:
+  - Maps decision values to [0, 1] via sigmoid
+  - Inverts so higher values = more anomalous
+  - Provides smooth transition near decision boundary
+* **Key Learning:** Always verify the semantics of ML library outputs. Scikit-learn's anomaly detection uses "higher = more normal" convention, opposite to intuitive expectations.
+
+---
