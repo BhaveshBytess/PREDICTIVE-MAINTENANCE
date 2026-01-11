@@ -112,3 +112,14 @@
 * **Key Learning:** Python's UUID constructor's `version` param is for creation, not validation. Check `.version` after parsing to validate.
 
 ---
+
+## [Phase 4] - NaN for Cold-Start Windows
+
+* **Context:** Computing rolling mean, spike count, RMS features when historical data is insufficient.
+* **The Hurdle:** What value to return for features when the window is incomplete (cold-start)? Options: 0.0, default value, or NaN.
+* **The Solution:** Return `None` (NaN) for incomplete windows. This prevents false "zero readings" that could trigger false anomalies downstream.
+  - Coercing to 0.0 would incorrectly suggest zero voltage, zero vibration, etc.
+  - Downstream consumers (anomaly detection, rules) must handle NaN gracefully.
+* **Key Learning:** Use NaN/None for missing data rather than sentinel values (0, -1). This preserves data integrity and makes the "unknown" state explicit.
+
+---
