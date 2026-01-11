@@ -123,3 +123,15 @@
 * **Key Learning:** Use NaN/None for missing data rather than sentinel values (0, -1). This preserves data integrity and makes the "unknown" state explicit.
 
 ---
+
+## [Phase 5] - Healthy Data Filtering for Baseline
+
+* **Context:** Building baseline profiles that define "normal" operating behavior.
+* **The Hurdle:** How to ensure baseline only reflects healthy operation, not fault conditions?
+* **The Solution:** Explicitly filter by `is_fault_injected == False` before computing statistics. The baseline builder requires this column and only includes rows where it's False.
+  - Fault-injected periods have abnormal sensor readings
+  - Including them would corrupt the "normal" profile
+  - 80% minimum coverage ensures sufficient healthy data
+* **Key Learning:** Baseline purity is critical. Always have an explicit "truth" marker (is_fault_injected) to separate healthy from faulty data.
+
+---
