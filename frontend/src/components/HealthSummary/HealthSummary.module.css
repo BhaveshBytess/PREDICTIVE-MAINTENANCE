@@ -1,0 +1,86 @@
+.container {
+    padding: var(--spacing-lg);
+}
+
+.title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: var(--spacing-lg);
+    background: var(--accent-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.scoreSection {
+    display: flex;
+    justify-content: center;
+    margin-bottom: var(--spacing-sm);
+}
+
+.gauge {
+    position: relative;
+    width: 120px;
+    height: 120px;
+}
+
+.gaugeSvg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(0deg);
+}
+
+.gaugeProgress {
+    transition: stroke-dasharray 1s ease-out;
+}
+
+.gaugeValue {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+}
+
+.scoreNumber {
+    display: block;
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+}
+
+.scoreLabel {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+}
+
+.infoRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-sm) 0;
+    border-top: var(--glass-border);
+}
+
+.infoLabel {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.infoValue {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
