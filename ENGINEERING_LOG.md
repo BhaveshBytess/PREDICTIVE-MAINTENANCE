@@ -147,3 +147,15 @@
 * **Key Learning:** Always verify the semantics of ML library outputs. Scikit-learn's anomaly detection uses "higher = more normal" convention, opposite to intuitive expectations.
 
 ---
+
+## [Phase 7] - Deterministic Health Score Formula
+
+* **Context:** Converting anomaly scores to human-readable health scores.
+* **The Hurdle:** Should health calculation include weights, time decay, or other factors?
+* **The Solution:** Pure deterministic formula: `Health = 100 * (1.0 - anomaly_score)`. No stochastic factors.
+  - Same input always produces same output
+  - Easy to audit and explain
+  - Risk thresholds use named constants: `THRESHOLD_CRITICAL=25`, `THRESHOLD_HIGH=50`, `THRESHOLD_MODERATE=75`
+* **Key Learning:** For explainability, prefer simple deterministic formulas over complex weighted models. Magic numbers should be named constants.
+
+---
