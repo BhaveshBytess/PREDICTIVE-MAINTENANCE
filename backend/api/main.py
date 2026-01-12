@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import router
+from .integration_routes import router as integration_router
 
 
 # Application metadata
@@ -44,6 +45,7 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(router, tags=["Ingestion"])
+app.include_router(integration_router)
 
 
 @app.get("/", include_in_schema=False)
