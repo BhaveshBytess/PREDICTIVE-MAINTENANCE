@@ -35,12 +35,18 @@ const generateMockData = () => {
     return data
 }
 
-function SignalChart({ data, title }) {
+function SignalChart({ data, anomalyIndices = [], title }) {
     // Use mock data if no real data provided
     const chartData = data?.length > 0 ? data : generateMockData()
 
+    // Mark anomaly points based on indices passed from parent
+    const dataWithAnomalies = chartData.map((d, i) => ({
+        ...d,
+        anomaly: anomalyIndices.includes(i) || d.anomaly
+    }))
+
     // Find anomaly points for markers
-    const anomalyPoints = chartData.filter(d => d.anomaly)
+    const anomalyPoints = dataWithAnomalies.filter(d => d.anomaly)
 
     return (
         <div className={`glass-card ${styles.container}`}>
@@ -48,7 +54,7 @@ function SignalChart({ data, title }) {
 
             <div className={styles.chartWrapper}>
                 <ResponsiveContainer width="100%" height={350}>
-                    <LineChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
+                    <LineChart data={dataWithAnomalies} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
                         <defs>
                             <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
                                 <stop offset="0%" stopColor="#3b82f6" />

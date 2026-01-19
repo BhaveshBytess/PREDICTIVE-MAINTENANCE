@@ -168,6 +168,7 @@ async def get_health_status(asset_id: str):
     Get the latest health assessment for an asset.
     
     Returns health score, risk level, and explanations.
+    Uses direct deviation from baseline for more responsive anomaly detection.
     """
     # Check if we have data
     if asset_id not in _sensor_history or len(_sensor_history[asset_id]) == 0:
@@ -181,7 +182,6 @@ async def get_health_status(asset_id: str):
     
     # Default health if no baseline yet
     if asset_id not in _baselines:
-        # Return a default healthy status
         return HealthStatusResponse(
             asset_id=asset_id,
             timestamp=datetime.now(timezone.utc),
@@ -194,11 +194,32 @@ async def get_health_status(asset_id: str):
     
     baseline = _baselines[asset_id]
     
-    # Compute anomaly score if detector exists
-    anomaly_score = 0.2  # Default low score
+    # DIRECT DEVIATION SCORING
+    # Compare current readings directly against baseline profiles
+    # This is more responsive than the Isolation Forest for extreme values
+    
+    max_deviation = 0.0
+    signals = ['voltage_v', 'current_a', 'power_factor', 'vibration_g']
+    
+    for signal in signals:
+        if signal in baseline.signal_profiles:
+            profile = baseline.signal_profiles[signal]
+            current_value = latest.get(signal, 0)
+            
+            # Calculate z-score (number of standard deviations from mean)
+            if profile.std > 0:
+                z_score = abs(current_value - profile.mean) / profile.std
+                max_deviation = max(max_deviation, z_score)
+    
+    # Convert z-score to anomaly score [0, 1]
+    # z=0 -> score=0, z=3 -> score=0.5, z=6 -> score=0.8, z=10+ -> score=0.95
+    import math
+    anomaly_score = 1 - (1 / (1 + (max_deviation / 5)))
+    anomaly_score = min(0.98, max(0.0, anomaly_score))  # Clamp to [0, 0.98]
+    
+    # Also check ML detector if available (use max of both)
     if asset_id in _detectors:
         detector = _detectors[asset_id]
-        # Create feature for scoring
         from backend.features.calculator import compute_all_features
         
         df = pd.DataFrame(_sensor_history[asset_id])
@@ -214,7 +235,8 @@ async def get_health_status(asset_id: str):
                 feature_df = pd.DataFrame([{col: features[col] for col in feature_cols}])
                 scores = detector.score(feature_df)
                 if scores:
-                    anomaly_score = scores[0].score
+                    ml_score = scores[0].score
+                    anomaly_score = max(anomaly_score, ml_score)  # Use higher score
     
     # Generate health assessment
     assessor = HealthAssessor(

@@ -66,11 +66,11 @@ export function getReportUrl(assetId = 'Motor-01', format = 'pdf') {
 }
 
 /**
- * Check API health
+ * Check API health - uses root endpoint instead of /health to avoid InfluxDB dependency
  */
 export async function checkApiHealth() {
     try {
-        const response = await fetch(`${API_BASE}/health`)
+        const response = await fetch(`${API_BASE}/`)
         return response.ok
     } catch {
         return false

@@ -39,29 +39,30 @@ def generate_healthy_reading():
 
 
 def generate_faulty_reading(fault_type=None):
-    """Generate anomalous sensor values simulating faults."""
+    """Generate EXTREME anomalous sensor values to force CRITICAL state."""
     if fault_type is None:
-        fault_type = random.choice(["voltage_spike", "vibration_drift", "pf_drop"])
+        fault_type = random.choice(["voltage_spike", "vibration_drift", "pf_drop", "catastrophic"])
     
     reading = generate_healthy_reading()
     
     if fault_type == "voltage_spike":
-        # Voltage surge - could indicate power supply issues
-        reading["voltage_v"] = round(random.gauss(260, 10), 2)
+        # MASSIVE voltage surge - way beyond normal
+        reading["voltage_v"] = round(random.gauss(320, 20), 2)  # +90V from normal!
         
     elif fault_type == "vibration_drift":
-        # High vibration - bearing wear or misalignment
-        reading["vibration_g"] = round(random.gauss(0.5, 0.1), 4)
+        # EXTREME vibration - machine shaking apart
+        reading["vibration_g"] = round(random.gauss(3.0, 0.5), 4)  # 20x normal!
         
     elif fault_type == "pf_drop":
-        # Power factor degradation - motor winding issues
-        reading["power_factor"] = round(random.uniform(0.65, 0.75), 3)
+        # SEVERE power factor degradation
+        reading["power_factor"] = round(random.uniform(0.35, 0.50), 3)  # Way below acceptable
         
-    elif fault_type == "multi_fault":
-        # Multiple simultaneous issues
-        reading["voltage_v"] = round(random.gauss(250, 8), 2)
-        reading["vibration_g"] = round(random.gauss(0.4, 0.08), 4)
-        reading["power_factor"] = round(random.uniform(0.70, 0.80), 3)
+    elif fault_type == "catastrophic":
+        # EVERYTHING fails at once - total system failure
+        reading["voltage_v"] = round(random.gauss(310, 25), 2)
+        reading["vibration_g"] = round(random.gauss(5.0, 1.0), 4)
+        reading["power_factor"] = round(random.uniform(0.30, 0.45), 3)
+        reading["current_a"] = round(random.gauss(35, 5), 2)  # Overcurrent!
     
     return reading
 

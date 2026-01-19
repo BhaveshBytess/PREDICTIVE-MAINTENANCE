@@ -1,50 +1,77 @@
+/* App Layout - Matches Wireframe */
+
 .container {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    background: var(--bg-primary);
 }
 
+/* Main 2-Column Grid Layout */
 .main {
     flex: 1;
     display: grid;
-    grid-template-columns: 1fr 380px;
+    grid-template-columns: 1fr 350px;
     gap: var(--spacing-lg);
     padding: var(--spacing-lg);
-    max-width: 1600px;
+    max-width: 1400px;
     margin: 0 auto;
     width: 100%;
 }
 
+/* Left Column: Metrics + Chart */
 .leftColumn {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-lg);
 }
 
+/* 3 Metrics in a Row */
 .metricsGrid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: var(--spacing-md);
 }
 
+/* Chart Container */
 .chartSection {
     flex: 1;
     min-height: 400px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
 }
 
+/* Right Sidebar */
 .sidebar {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
 }
 
+/* Download Button - Matches Wireframe Style */
 .downloadBtn {
     width: 100%;
     padding: var(--spacing-md) var(--spacing-lg);
     font-size: 1rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.3s ease;
 }
 
-/* Responsive - Stack sidebar below chart on mobile */
+.downloadBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+}
+
+/* Responsive */
 @media (max-width: 1024px) {
     .main {
         grid-template-columns: 1fr;
@@ -52,10 +79,6 @@
 
     .sidebar {
         order: 2;
-    }
-
-    .metricsGrid {
-        grid-template-columns: repeat(2, 1fr);
     }
 }
 
