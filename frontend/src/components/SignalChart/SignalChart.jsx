@@ -42,31 +42,11 @@ function SignalChart({ data, anomalyIndices = [], title }) {
     // Mark anomaly points based on indices passed from parent
     const dataWithAnomalies = chartData.map((d, i) => ({
         ...d,
-        anomaly: anomalyIndices.includes(i) || d.anomaly,
-        dataIndex: i  // Add explicit index for ReferenceLine matching
+        anomaly: anomalyIndices.includes(i) || d.anomaly
     }))
 
-    // Find anomaly points for markers - using the mapped data with indices
+    // Find anomaly points for red dashed vertical lines
     const anomalyPoints = dataWithAnomalies.filter(d => d.anomaly)
-
-    // Custom dot renderer - shows red dots for anomaly points
-    const renderDot = (props) => {
-        const { cx, cy, payload } = props
-        if (payload && payload.anomaly) {
-            return (
-                <circle
-                    key={`dot-${cx}-${cy}`}
-                    cx={cx}
-                    cy={cy}
-                    r={6}
-                    fill="#ef4444"
-                    stroke="#fff"
-                    strokeWidth={2}
-                />
-            )
-        }
-        return null
-    }
 
     return (
         <div className={`glass-card ${styles.container}`}>
@@ -91,7 +71,7 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                         <XAxis
                             dataKey="time"
                             stroke="#6b7280"
-                            tick={{ fill: '#9ca3af', fontSize: 12 }}
+                            tick={{ fill: '#9ca3af', fontSize: 10 }}
                             tickLine={false}
                             interval="preserveStartEnd"
                         />
@@ -118,14 +98,20 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                             }}
                         />
 
-                        {/* Anomaly reference lines - using time key from data */}
+                        {/* Red dashed vertical lines at anomaly points */}
                         {anomalyPoints.map((point, idx) => (
                             <ReferenceLine
-                                key={`anomaly-line-${idx}`}
+                                key={`anomaly-line-${idx}-${point.time}`}
                                 x={point.time}
                                 stroke="#ef4444"
                                 strokeDasharray="5 5"
                                 strokeWidth={2}
+                                label={{
+                                    value: '⚠️',
+                                    position: 'top',
+                                    fill: '#ef4444',
+                                    fontSize: 14
+                                }}
                             />
                         ))}
 
@@ -134,9 +120,9 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                             dataKey="value"
                             stroke="url(#lineGradient)"
                             strokeWidth={2}
-                            dot={renderDot}
+                            dot={false}
                             activeDot={{
-                                r: 8,
+                                r: 6,
                                 fill: '#3b82f6',
                                 stroke: '#fff',
                                 strokeWidth: 2

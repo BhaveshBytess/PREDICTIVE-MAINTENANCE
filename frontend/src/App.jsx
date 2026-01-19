@@ -76,7 +76,8 @@ function App() {
                 const chartPoints = data.map((d, i) => ({
                     time: new Date(d.timestamp).toLocaleTimeString('en-US', {
                         hour: '2-digit',
-                        minute: '2-digit'
+                        minute: '2-digit',
+                        second: '2-digit'
                     }),
                     value: d.vibration_g * 1000,
                     voltage: d.voltage_v,
