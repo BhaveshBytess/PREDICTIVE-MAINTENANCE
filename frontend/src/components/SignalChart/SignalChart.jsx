@@ -42,11 +42,31 @@ function SignalChart({ data, anomalyIndices = [], title }) {
     // Mark anomaly points based on indices passed from parent
     const dataWithAnomalies = chartData.map((d, i) => ({
         ...d,
-        anomaly: anomalyIndices.includes(i) || d.anomaly
+        anomaly: anomalyIndices.includes(i) || d.anomaly,
+        dataIndex: i  // Add explicit index for ReferenceLine matching
     }))
 
-    // Find anomaly points for markers
+    // Find anomaly points for markers - using the mapped data with indices
     const anomalyPoints = dataWithAnomalies.filter(d => d.anomaly)
+
+    // Custom dot renderer - shows red dots for anomaly points
+    const renderDot = (props) => {
+        const { cx, cy, payload } = props
+        if (payload && payload.anomaly) {
+            return (
+                <circle
+                    key={`dot-${cx}-${cy}`}
+                    cx={cx}
+                    cy={cy}
+                    r={6}
+                    fill="#ef4444"
+                    stroke="#fff"
+                    strokeWidth={2}
+                />
+            )
+        }
+        return null
+    }
 
     return (
         <div className={`glass-card ${styles.container}`}>
@@ -92,21 +112,20 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                                 color: '#f9fafb'
                             }}
                             labelStyle={{ color: '#9ca3af' }}
+                            formatter={(value, name, props) => {
+                                const suffix = props.payload?.anomaly ? ' ⚠️ ANOMALY' : ''
+                                return [`${value.toFixed(2)}${suffix}`, 'Power (mW)']
+                            }}
                         />
 
-                        {/* Anomaly reference lines */}
+                        {/* Anomaly reference lines - using time key from data */}
                         {anomalyPoints.map((point, idx) => (
                             <ReferenceLine
-                                key={idx}
+                                key={`anomaly-line-${idx}`}
                                 x={point.time}
                                 stroke="#ef4444"
                                 strokeDasharray="5 5"
-                                label={{
-                                    value: 'Anomaly detected',
-                                    position: 'top',
-                                    fill: '#ef4444',
-                                    fontSize: 11
-                                }}
+                                strokeWidth={2}
                             />
                         ))}
 
@@ -115,9 +134,9 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                             dataKey="value"
                             stroke="url(#lineGradient)"
                             strokeWidth={2}
-                            dot={false}
+                            dot={renderDot}
                             activeDot={{
-                                r: 6,
+                                r: 8,
                                 fill: '#3b82f6',
                                 stroke: '#fff',
                                 strokeWidth: 2
