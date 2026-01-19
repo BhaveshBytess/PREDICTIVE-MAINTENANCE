@@ -85,10 +85,17 @@ function App() {
                 }))
                 setChartData(chartPoints)
 
-                const anomalies = data
-                    .map((d, i) => d.is_faulty ? i : null)
-                    .filter(i => i !== null)
-                setAnomalyPoints(anomalies)
+                // Only show anomaly markers when risk is elevated (not LOW)
+                // This prevents showing historical faulty data when system is now healthy
+                if (health && health.risk_level !== 'LOW') {
+                    const anomalies = data
+                        .map((d, i) => d.is_faulty ? i : null)
+                        .filter(i => i !== null)
+                    setAnomalyPoints(anomalies)
+                } else {
+                    // Clear anomaly markers when system is healthy
+                    setAnomalyPoints([])
+                }
             }
         } catch (error) {
             console.error('Error fetching data:', error)

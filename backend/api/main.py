@@ -26,10 +26,12 @@ app = FastAPI(
 # CORS Configuration — Restricted to localhost only
 # Per user mandate: Do NOT use allow_origins=["*"]
 ALLOWED_ORIGINS = [
-    "http://localhost:3000",      # React dev server
+    "http://localhost:3000",      # React dev server (primary)
+    "http://localhost:3001",      # React dev server (alternate)
     "http://localhost:5173",      # Vite dev server
     "http://localhost:8080",      # Alternative frontend port
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8080",
 ]
