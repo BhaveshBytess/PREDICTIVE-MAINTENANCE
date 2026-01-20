@@ -12,11 +12,11 @@ WORKDIR /app
 ARG VITE_API_URL=http://localhost:8000
 ENV VITE_API_URL=$VITE_API_URL
 
-# Copy package files
-COPY package*.json ./
+# Copy only package.json (not package-lock.json for cross-platform compatibility)
+COPY package.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (fresh install for Linux platform)
+RUN npm install --legacy-peer-deps --no-package-lock
 
 # Copy source code
 COPY . .
