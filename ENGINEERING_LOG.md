@@ -206,3 +206,47 @@
 * **Key Learning:** Production readiness means supporting multiple deployment strategies. Systemd provides resilience equivalent to Docker's restart policies.
 
 ---
+
+## [Phase 12] - Anomaly Visualization - Red Dashed Lines
+
+* **Context:** Chart anomaly markers needed to show as red dashed vertical lines with ⚠️ emoji.
+* **The Hurdle:** Initially used red dots, then ReferenceLine wasn't matching x-axis values due to duplicate timestamps (time format lacked seconds).
+* **The Solution:** 
+  1. Added seconds to timestamp format (`HH:MM:SS`) for unique x-axis values
+  2. Used Recharts `ReferenceLine` component with `strokeDasharray="5 5"` and red stroke
+  3. Added ⚠️ emoji label at top of each line
+* **Key Learning:** Time-based x-axis matching requires unique values. Include seconds in time format for sub-minute data granularity.
+
+---
+
+## [Phase 12] - Anomaly Lines Only When Risk Elevated
+
+* **Context:** Red dashed lines were showing for ALL historical `is_faulty` data points, even when system was now healthy.
+* **The Hurdle:** Users reported seeing anomaly lines at LOW risk, which was confusing.
+* **The Solution:** Modified frontend logic to only show anomaly lines when `risk_level !== 'LOW'`. Clears anomaly markers when system recovers to healthy state.
+* **Key Learning:** Visualization should reflect CURRENT state, not just historical data. Anomaly markers only make sense when there's an active issue.
+
+---
+
+## [Phase 12] - CORS Configuration for Alternate Ports
+
+* **Context:** STATUS: LIVE badge showing OFFLINE when frontend ran on port 3001 (alternate port when 3000 was in use).
+* **The Hurdle:** CORS only allowed localhost:3000, 5173, 8080. Port 3001 was blocked.
+* **The Solution:** Added `localhost:3001` and `127.0.0.1:3001` to CORS allowed origins in `backend/api/main.py`.
+* **Key Learning:** Vite dev server automatically switches to alternate ports. CORS config must include common alternate ports.
+
+---
+
+## [Phase 12] - Complete E2E Verification
+
+* **Context:** Full end-to-end testing of all risk levels with fresh data.
+* **Verification Completed:**
+  | Risk Level | Health Score | Red Lines | Maintenance Window |
+  |------------|--------------|-----------|-------------------|
+  | LOW | 75 | ❌ None | ~60 days |
+  | MODERATE | 50 | ✅ Yes | ~19 days |
+  | HIGH | 33 | ✅ Yes | ~4 days |
+  | CRITICAL | 5 | ✅ Yes | < 1 day |
+* **Key Learning:** System correctly responds to real-world sensor values across the full risk spectrum.
+
+---

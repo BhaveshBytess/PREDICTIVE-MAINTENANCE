@@ -232,12 +232,36 @@ else:                   risk = LOW
   <strong>Dark theme with glassmorphism • Real-time charts • Color-coded risk levels</strong>
 </p>
 
-**Features:**
-- 🟢 Live status indicator with pulse animation
-- 📊 Recharts line graph with anomaly markers (ReferenceLine)
-- 🎯 SVG health gauge (0-100)
-- 💡 AI explanations with confidence bars
-- 📥 PDF/Excel download button
+**Core Features:**
+- 🟢 **STATUS: LIVE** badge with real-time connection indicator
+- 📊 **Real-time Power Signature chart** with Recharts
+- 🔴 **Red dashed vertical lines** with ⚠️ emoji for anomaly markers
+- 🎯 **Health Score ring** (0-100) with color coding:
+  - Green (75-100): LOW risk
+  - Yellow/Orange (50-74): MODERATE risk
+  - Orange (25-49): HIGH risk
+  - Red (0-24): CRITICAL risk
+- ⏰ **Maintenance Window estimation** (days until recommended service)
+- 💡 **Insight panel** with specific explanations (e.g., "Vibration 3.2σ above normal")
+- 📥 **PDF/Excel download** button
+
+**Anomaly Visualization Logic:**
+- Red dashed lines appear **only when risk ≠ LOW**
+- When system is healthy, no anomaly markers shown
+- Historical faulty data is cleared from visualization when system recovers
+
+---
+
+## ✅ E2E Verification
+
+All risk levels have been tested with real sensor data:
+
+| Risk Level | Health Score | Red Lines | Maintenance Window | Test Status |
+|------------|--------------|-----------|-------------------|-------------|
+| **LOW** | 75+ | ❌ None | ~60 days | ✅ Pass |
+| **MODERATE** | 50-74 | ✅ Yes + ⚠️ | ~19 days | ✅ Pass |
+| **HIGH** | 25-49 | ✅ Yes + ⚠️ | ~4 days | ✅ Pass |
+| **CRITICAL** | 0-24 | ✅ Yes + ⚠️ | < 1 day | ✅ Pass |
 
 ---
 
