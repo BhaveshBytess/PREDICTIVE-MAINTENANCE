@@ -49,3 +49,12 @@ influxdb_data/
 # Coverage Reports
 .coverage
 htmlcov/
+
+# AI/Agent Collaboration Artifacts (Portfolio Cleanup)
+agent.md
+STARTING_PROMPT.md
+EXECUTION_PLAN.md
+CONTRACTS.md
+ENGINEERING_LOG.md
+.agent/
+.gemini/
