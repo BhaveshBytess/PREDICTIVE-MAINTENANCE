@@ -250,3 +250,15 @@
 * **Key Learning:** System correctly responds to real-world sensor values across the full risk spectrum.
 
 ---
+
+## [Phase 12] - Auto-Detection of Anomalies at Ingestion
+
+* **Context:** Red anomaly lines were appearing based on generator's `is_faulty` flag, not actual detection.
+* **The Hurdle:** User correctly identified that this was "memorizing" not "detecting" - lines should appear only where values actually exceed baseline bounds.
+* **The Solution:** Modified `/api/v1/data/simple` endpoint to auto-detect anomalies:
+  1. Compare each sensor value (voltage, current, power_factor, vibration) against baseline min/max
+  2. If ANY value exceeds baseline bounds (with 10% tolerance), mark as anomaly
+  3. `is_faulty` flag is now set by ML detection, not generator
+* **Key Learning:** True anomaly detection compares incoming values against learned baseline bounds. The generator's flag is only used when no baseline exists yet.
+
+---

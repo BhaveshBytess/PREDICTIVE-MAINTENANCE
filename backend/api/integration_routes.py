@@ -320,10 +320,37 @@ async def simple_ingest(request: SimpleIngestRequest):
     Simplified ingestion endpoint for demo purposes.
     
     Stores data in memory for real-time dashboard updates.
+    Auto-detects anomalies by comparing values against baseline.
     """
     # Initialize history for asset
     if request.asset_id not in _sensor_history:
         _sensor_history[request.asset_id] = []
+    
+    # Auto-detect anomaly by comparing to baseline (if baseline exists)
+    is_anomaly = False
+    if request.asset_id in _baselines:
+        baseline = _baselines[request.asset_id]
+        
+        # Check each signal against baseline min/max
+        signals = {
+            'voltage_v': request.voltage_v,
+            'current_a': request.current_a,
+            'power_factor': request.power_factor,
+            'vibration_g': request.vibration_g
+        }
+        
+        for signal_name, value in signals.items():
+            if signal_name in baseline.signal_profiles:
+                profile = baseline.signal_profiles[signal_name]
+                # Check if value exceeds baseline bounds (with 10% tolerance)
+                tolerance = (profile.max - profile.min) * 0.1
+                if value < (profile.min - tolerance) or value > (profile.max + tolerance):
+                    is_anomaly = True
+                    break
+    
+    # Use auto-detected anomaly flag (overrides generator's flag)
+    # If no baseline exists yet, fall back to generator's flag
+    detected_faulty = is_anomaly if request.asset_id in _baselines else request.is_faulty
     
     # Store reading
     reading = {
@@ -332,7 +359,7 @@ async def simple_ingest(request: SimpleIngestRequest):
         "current_a": request.current_a,
         "power_factor": request.power_factor,
         "vibration_g": request.vibration_g,
-        "is_faulty": request.is_faulty
+        "is_faulty": detected_faulty
     }
     
     _sensor_history[request.asset_id].append(reading)
