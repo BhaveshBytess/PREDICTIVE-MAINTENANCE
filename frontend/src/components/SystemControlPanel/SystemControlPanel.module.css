@@ -41,7 +41,7 @@
     --color-blue: #3b82f6;
     --color-green: #22c55e;
     --color-red: #ef4444;
-    
+
     background: var(--badge-color, var(--color-gray));
     color: white;
     padding: 0.35rem 0.75rem;
@@ -156,6 +156,17 @@
     box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
 }
 
+.stopBtn {
+    background: linear-gradient(135deg, #6b7280, #4b5563);
+    color: white;
+}
+
+.stopBtn:not(:disabled):hover {
+    background: linear-gradient(135deg, #9ca3af, #6b7280);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(107, 114, 128, 0.4);
+}
+
 /* Spinner */
 .spinner {
     width: 14px;
@@ -203,15 +214,15 @@
     .buttonGroup {
         flex-direction: column;
     }
-    
+
     .button {
         width: 100%;
     }
-    
+
     .faultControl {
         flex-direction: column;
     }
-    
+
     .faultSelect {
         width: 100%;
     }

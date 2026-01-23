@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { getSystemState, calibrateSystem, injectFault, resetSystem } from '../../api/systemApi'
+import { getSystemState, calibrateSystem, injectFault, resetSystem, stopSession } from '../../api/systemApi'
 import styles from './SystemControlPanel.module.css'
 
 // State constants
@@ -89,10 +89,23 @@ export default function SystemControlPanel() {
         }
     }, [])
 
+    const handleStop = useCallback(async () => {
+        setIsLoading(true)
+        setError(null)
+        try {
+            await stopSession()
+        } catch (err) {
+            setError(err.message)
+        } finally {
+            setIsLoading(false)
+        }
+    }, [])
+
     // Button disabled states
     const canCalibrate = systemState === STATES.IDLE && !isLoading
     const canInjectFault = systemState === STATES.MONITORING_HEALTHY && !isLoading
     const canReset = systemState === STATES.FAULT_INJECTION && !isLoading
+    const canStop = (systemState === STATES.MONITORING_HEALTHY || systemState === STATES.FAULT_INJECTION) && !isLoading
 
     // State badge color
     const getStateColor = () => {
@@ -195,6 +208,15 @@ export default function SystemControlPanel() {
                     title={canReset ? 'Reset to healthy' : 'Can only reset during FAULT_INJECTION'}
                 >
                     🔄 Reset
+                </button>
+
+                <button
+                    className={`${styles.button} ${styles.stopBtn}`}
+                    onClick={handleStop}
+                    disabled={!canStop}
+                    title={canStop ? 'Stop session and return to IDLE' : 'Can only stop when monitoring'}
+                >
+                    ⏹️ Stop
                 </button>
             </div>
 

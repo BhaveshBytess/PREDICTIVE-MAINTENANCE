@@ -67,3 +67,18 @@ export async function resetSystem(assetId = 'Motor-01') {
     }
     return response.json();
 }
+
+/**
+ * Stop session and return to IDLE state
+ * @returns {Promise<{status: string, message: string, state: string}>}
+ */
+export async function stopSession() {
+    const response = await fetch(`${API_BASE}/system/stop`, {
+        method: 'POST',
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Stop failed');
+    }
+    return response.json();
+}

@@ -123,8 +123,10 @@ class HealthAssessor:
         """
         Compute health score from anomaly score.
         
-        Pure mathematical mapping:
-        Health = 100 * (1.0 - anomaly_score)
+        Formula with Confidence Boost:
+        - For low anomaly scores (< 0.15), apply boost to ensure healthy = 80+
+        - Base: Health = 100 * (1.0 - anomaly_score)
+        - Boost: Amplify health for truly healthy readings
         
         Args:
             anomaly_score: Anomaly score [0, 1] where 1 = highly anomalous
@@ -135,10 +137,23 @@ class HealthAssessor:
         # Clamp anomaly score to valid range
         clamped_score = max(0.0, min(1.0, anomaly_score))
         
-        # Pure deterministic formula
-        health = 100.0 * (1.0 - clamped_score)
+        # Apply confidence boost for low anomaly scores ("Green Start" rule)
+        # When anomaly_score < 0.15 (truly healthy), boost health to 80+
+        if clamped_score < 0.15:
+            # Scale 0.0-0.15 to health 100-80
+            # At score=0.0 -> health=100
+            # At score=0.15 -> health=80
+            health = 100.0 - (clamped_score / 0.15) * 20.0
+        elif clamped_score < 0.35:
+            # Moderate zone: scale 0.15-0.35 to health 80-50
+            normalized = (clamped_score - 0.15) / 0.20
+            health = 80.0 - normalized * 30.0
+        else:
+            # High anomaly zone: scale 0.35-1.0 to health 50-0
+            normalized = (clamped_score - 0.35) / 0.65
+            health = 50.0 - normalized * 50.0
         
-        return int(round(health))
+        return int(round(max(0, min(100, health))))
     
     def classify_risk_level(self, health_score: int) -> RiskLevel:
         """

@@ -436,18 +436,35 @@ async def reset_system(
     # Return to healthy monitoring
     _state_manager.set_state(
         SystemState.MONITORING_HEALTHY,
-        "System reset. Monitoring healthy operation."
+        "System reset. Monitoring healthy operation (True Recovery)."
     )
     
-    # Start healthy monitoring again
+    # Start healthy monitoring with PROPER anomaly detection (True Recovery)
     def resume_healthy_monitoring():
+        """Generate healthy data with proper baseline comparison for natural recovery."""
         while not _state_manager.should_stop():
             if _state_manager.state != SystemState.MONITORING_HEALTHY:
                 break
             
             reading = generate_sensor_reading(asset_id, is_faulty=False)
             reading["timestamp"] = datetime.now(timezone.utc).isoformat()
-            reading["is_faulty"] = False
+            
+            # TRUE RECOVERY: Check against baseline (don't hardcode is_faulty)
+            is_anomaly = False
+            if asset_id in _baselines:
+                bl = _baselines[asset_id]
+                for signal_name, value in [('voltage_v', reading['voltage_v']),
+                                           ('current_a', reading['current_a']),
+                                           ('power_factor', reading['power_factor']),
+                                           ('vibration_g', reading['vibration_g'])]:
+                    if signal_name in bl.signal_profiles:
+                        profile = bl.signal_profiles[signal_name]
+                        tolerance = (profile.max - profile.min) * 0.1
+                        if value < (profile.min - tolerance) or value > (profile.max + tolerance):
+                            is_anomaly = True
+                            break
+            
+            reading["is_faulty"] = is_anomaly
             _sensor_history[asset_id].append(reading)
             
             if len(_sensor_history[asset_id]) > 1000:
@@ -463,4 +480,42 @@ async def reset_system(
         status="reset",
         message="System reset to healthy monitoring.",
         state=SystemState.MONITORING_HEALTHY.value
+    )
+
+
+@router.post("/stop", response_model=ActionResponse)
+async def stop_session():
+    """
+    Stop monitoring session and return to IDLE state.
+    
+    Allows user to recalibrate without restarting the server.
+    State transitions: MONITORING_HEALTHY | FAULT_INJECTION → IDLE
+    """
+    current_state = _state_manager.state
+    
+    if current_state == SystemState.IDLE:
+        raise HTTPException(
+            status_code=400,
+            detail="System is already IDLE."
+        )
+    
+    if current_state == SystemState.CALIBRATING:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot stop during calibration. Please wait for it to complete."
+        )
+    
+    # Stop background task
+    _state_manager.stop_background_task()
+    
+    # Return to IDLE
+    _state_manager.set_state(
+        SystemState.IDLE,
+        "Session stopped. Click 'Calibrate' to begin a new demo."
+    )
+    
+    return ActionResponse(
+        status="stopped",
+        message="Session stopped. System is now IDLE.",
+        state=SystemState.IDLE.value
     )
