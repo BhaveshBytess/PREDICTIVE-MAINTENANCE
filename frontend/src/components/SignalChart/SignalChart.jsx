@@ -6,7 +6,6 @@ import {
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    ReferenceLine,
     ReferenceArea
 } from 'recharts'
 import styles from './SignalChart.module.css'
@@ -35,6 +34,49 @@ const generateMockData = () => {
     return data
 }
 
+/**
+ * Calculate anomaly regions by coalescing consecutive anomaly points.
+ * 
+ * @param {Array} data - Chart data with { time, value, anomaly } objects
+ * @returns {Array} Regions with { x1, x2 } timestamps for ReferenceArea
+ */
+function calculateAnomalyRegions(data) {
+    const regions = []
+    let regionStart = null
+
+    for (let i = 0; i < data.length; i++) {
+        const point = data[i]
+
+        if (point.anomaly) {
+            // Start a new region if not already in one
+            if (regionStart === null) {
+                regionStart = point.time
+            }
+        } else {
+            // End the current region if we were in one
+            if (regionStart !== null) {
+                const prevPoint = data[i - 1]
+                regions.push({
+                    x1: regionStart,
+                    x2: prevPoint.time
+                })
+                regionStart = null
+            }
+        }
+    }
+
+    // Handle case where anomaly extends to end of data
+    if (regionStart !== null) {
+        const lastPoint = data[data.length - 1]
+        regions.push({
+            x1: regionStart,
+            x2: lastPoint.time
+        })
+    }
+
+    return regions
+}
+
 function SignalChart({ data, anomalyIndices = [], title }) {
     // Use mock data if no real data provided
     const chartData = data?.length > 0 ? data : generateMockData()
@@ -45,8 +87,8 @@ function SignalChart({ data, anomalyIndices = [], title }) {
         anomaly: anomalyIndices.includes(i) || d.anomaly
     }))
 
-    // Find anomaly points for red dashed vertical lines
-    const anomalyPoints = dataWithAnomalies.filter(d => d.anomaly)
+    // Calculate coalesced anomaly regions for shaded areas
+    const anomalyRegions = calculateAnomalyRegions(dataWithAnomalies)
 
     return (
         <div className={`glass-card ${styles.container}`}>
@@ -98,20 +140,17 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                             }}
                         />
 
-                        {/* Red dashed vertical lines at anomaly points */}
-                        {anomalyPoints.map((point, idx) => (
-                            <ReferenceLine
-                                key={`anomaly-line-${idx}-${point.time}`}
-                                x={point.time}
+                        {/* Shaded red regions for anomaly spans */}
+                        {anomalyRegions.map((region, idx) => (
+                            <ReferenceArea
+                                key={`anomaly-region-${idx}`}
+                                x1={region.x1}
+                                x2={region.x2}
+                                fill="#ef4444"
+                                fillOpacity={0.2}
                                 stroke="#ef4444"
-                                strokeDasharray="5 5"
-                                strokeWidth={2}
-                                label={{
-                                    value: '⚠️',
-                                    position: 'top',
-                                    fill: '#ef4444',
-                                    fontSize: 14
-                                }}
+                                strokeOpacity={0.5}
+                                strokeWidth={1}
                             />
                         ))}
 
@@ -139,7 +178,7 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                 </div>
                 <div className={styles.legendItem}>
                     <span className={styles.legendAnomaly}></span>
-                    <span>Anomaly Detected</span>
+                    <span>Anomaly Region</span>
                 </div>
             </div>
         </div>

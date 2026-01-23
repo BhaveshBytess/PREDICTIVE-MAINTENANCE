@@ -241,8 +241,8 @@ def run_calibration(asset_id: str):
         
         if len(feature_data) >= 5:
             feature_df = pd.DataFrame(feature_data)
-            detector = AnomalyDetector(contamination=0.05)
-            detector.fit(feature_df)
+            detector = AnomalyDetector(asset_id=asset_id, contamination=0.05)
+            detector.train(feature_df)
             _detectors[asset_id] = detector
         
         # SIGNAL-BASED COMPLETION: Calibration finished
