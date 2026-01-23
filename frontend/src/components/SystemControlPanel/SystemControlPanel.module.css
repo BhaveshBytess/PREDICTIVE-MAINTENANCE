@@ -1,0 +1,218 @@
+/* SystemControlPanel Styles */
+
+.container {
+    background: rgba(30, 30, 50, 0.8);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 1.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 1.5rem;
+}
+
+.title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0 0 1rem 0;
+    color: #fff;
+}
+
+.icon {
+    font-size: 1.2rem;
+}
+
+/* State Section */
+.stateSection {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.stateLabel {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+}
+
+.stateBadge {
+    --color-gray: #6b7280;
+    --color-blue: #3b82f6;
+    --color-green: #22c55e;
+    --color-red: #ef4444;
+    
+    background: var(--badge-color, var(--color-gray));
+    color: white;
+    padding: 0.35rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Message Box */
+.messageBox {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 0.9rem;
+    min-height: 2.5rem;
+    display: flex;
+    align-items: center;
+}
+
+.errorBox {
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.5);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    color: #fca5a5;
+    font-size: 0.9rem;
+}
+
+/* Button Group */
+.buttonGroup {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1.25rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    min-width: 120px;
+}
+
+.button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.calibrateBtn {
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    color: white;
+}
+
+.calibrateBtn:not(:disabled):hover {
+    background: linear-gradient(135deg, #60a5fa, #3b82f6);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
+.faultControl {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.faultSelect {
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.faultSelect:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.faultBtn {
+    background: linear-gradient(135deg, #ef4444, #b91c1c);
+    color: white;
+}
+
+.faultBtn:not(:disabled):hover {
+    background: linear-gradient(135deg, #f87171, #ef4444);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+.resetBtn {
+    background: linear-gradient(135deg, #22c55e, #15803d);
+    color: white;
+}
+
+.resetBtn:not(:disabled):hover {
+    background: linear-gradient(135deg, #4ade80, #22c55e);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+}
+
+/* Spinner */
+.spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Instructions */
+.instructions {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 8px;
+    padding: 1rem;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.instructions p {
+    margin: 0 0 0.5rem 0;
+}
+
+.instructions ol {
+    margin: 0;
+    padding-left: 1.25rem;
+}
+
+.instructions li {
+    margin-bottom: 0.25rem;
+}
+
+.instructions strong {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .buttonGroup {
+        flex-direction: column;
+    }
+    
+    .button {
+        width: 100%;
+    }
+    
+    .faultControl {
+        flex-direction: column;
+    }
+    
+    .faultSelect {
+        width: 100%;
+    }
+}

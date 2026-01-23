@@ -17,6 +17,7 @@ import SignalChart from './components/SignalChart/SignalChart'
 import HealthSummary from './components/HealthSummary/HealthSummary'
 import InsightPanel from './components/InsightPanel/InsightPanel'
 import OperatorLog from './components/OperatorLog/OperatorLog'
+import SystemControlPanel from './components/SystemControlPanel'
 
 // API
 import { fetchHealthStatus, fetchDataHistory, getReportUrl, buildBaseline, checkApiHealth } from './api/client'
@@ -122,8 +123,11 @@ function App() {
 
             {/* Main Content - 2 Column Grid */}
             <main className={styles.main}>
-                {/* Left Column: Metrics + Chart */}
+                {/* Left Column: Controls + Metrics + Chart */}
                 <div className={styles.leftColumn}>
+                    {/* System Control Panel */}
+                    <SystemControlPanel />
+
                     {/* 3 Metric Cards in a Row */}
                     <div className={styles.metricsGrid}>
                         <MetricCard

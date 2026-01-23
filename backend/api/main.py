@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import router
 from .integration_routes import router as integration_router
+from .system_routes import router as system_router
 
 
 # Application metadata
@@ -48,6 +49,7 @@ app.add_middleware(
 # Include API routes
 app.include_router(router, tags=["Ingestion"])
 app.include_router(integration_router)
+app.include_router(system_router)
 
 
 @app.get("/", include_in_schema=False)
