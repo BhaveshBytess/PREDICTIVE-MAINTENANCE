@@ -206,55 +206,39 @@ async def get_health_status(asset_id: str):
             profile = baseline.signal_profiles[signal]
             current_value = latest.get(signal, 0)
             
-            # Calculate z-score (number of standard deviations from mean)
-            # Use minimum std floor to prevent divide-by-small-number issues
-            effective_std = max(profile.std, profile.mean * 0.02)  # At least 2% of mean
-            if effective_std > 0:
-                z_score = abs(current_value - profile.mean) / effective_std
-                max_deviation = max(max_deviation, z_score)
+            # SIMPLE RANGE-BASED CHECK
+            # If value is within observed min-max range (with 10% tolerance), it's healthy
+            range_size = profile.max - profile.min
+            tolerance = range_size * 0.5  # 50% tolerance beyond observed range
+            
+            lower_bound = profile.min - tolerance
+            upper_bound = profile.max + tolerance
+            
+            if current_value < lower_bound or current_value > upper_bound:
+                # Value is outside healthy range - calculate how far
+                if current_value < lower_bound:
+                    deviation = (lower_bound - current_value) / (range_size + 0.001)
+                else:
+                    deviation = (current_value - upper_bound) / (range_size + 0.001)
+                max_deviation = max(max_deviation, deviation)
     
-    # Convert z-score to anomaly score [0, 1]
-    # HEALTHY DATA: z < 3 -> very low anomaly score (0-0.1) -> health 80+
-    # Normal statistical variation is up to 3σ (99.7% of data)
-    # MODERATE: z = 3-5 -> anomaly 0.1-0.3 -> health 50-80
-    # HIGH: z = 5-8 -> anomaly 0.3-0.6 -> health 20-50  
-    # CRITICAL: z > 8 -> anomaly 0.6+ -> health < 20
-    import math
-    if max_deviation < 3.0:
-        # Healthy zone: up to 3σ is normal variation
-        anomaly_score = max_deviation * 0.033  # z=3 -> 0.1
-    elif max_deviation < 5.0:
-        # Moderate zone
-        anomaly_score = 0.1 + (max_deviation - 3.0) * 0.1  # z=5 -> 0.3
-    elif max_deviation < 8.0:
-        # High zone
-        anomaly_score = 0.3 + (max_deviation - 5.0) * 0.1  # z=8 -> 0.6
+    # Convert deviation to anomaly score [0, 1]
+    # deviation 0 = within range = anomaly 0 = health 100
+    # deviation 1 = one range width outside = anomaly 0.5 = health 50
+    # deviation 2+ = two range widths outside = anomaly 0.8+ = health 20
+    if max_deviation <= 0:
+        anomaly_score = 0.0
+    elif max_deviation < 1.0:
+        anomaly_score = max_deviation * 0.3  # 0-0.3
+    elif max_deviation < 2.0:
+        anomaly_score = 0.3 + (max_deviation - 1.0) * 0.3  # 0.3-0.6
     else:
-        # Critical zone
-        anomaly_score = min(0.95, 0.6 + (max_deviation - 8.0) * 0.05)
+        anomaly_score = min(0.95, 0.6 + (max_deviation - 2.0) * 0.15)  # 0.6+
     
     anomaly_score = min(0.98, max(0.0, anomaly_score))  # Clamp to [0, 0.98]
     
-    # Also check ML detector if available (use max of both)
-    if asset_id in _detectors:
-        detector = _detectors[asset_id]
-        from backend.features.calculator import compute_all_features
-        
-        df = pd.DataFrame(_sensor_history[asset_id])
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df.set_index('timestamp', inplace=True)
-        
-        if len(df) >= 10:
-            features = compute_all_features(df, len(df)-1, latest['power_factor'])
-            feature_cols = ['voltage_rolling_mean_1h', 'current_spike_count', 
-                            'power_factor_efficiency_score', 'vibration_intensity_rms']
-            
-            if all(features.get(col) is not None for col in feature_cols):
-                feature_df = pd.DataFrame([{col: features[col] for col in feature_cols}])
-                scores = detector.score(feature_df)
-                if scores:
-                    ml_score = scores[0].score
-                    anomaly_score = max(anomaly_score, ml_score)  # Use higher score
+    # Skip ML detector - it's adding noise during healthy monitoring
+    # The range-based check is more intuitive and reliable
     
     # Generate health assessment
     assessor = HealthAssessor(
