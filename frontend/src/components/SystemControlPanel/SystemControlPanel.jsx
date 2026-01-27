@@ -26,12 +26,17 @@ const FAULT_TYPES = [
     { value: 'DRIFT', label: 'Gradual Drift' }
 ]
 
-export default function SystemControlPanel() {
+export default function SystemControlPanel({ onMetricsUpdate }) {
     const [systemState, setSystemState] = useState(STATES.IDLE)
     const [message, setMessage] = useState('System ready. Click "Calibrate" to begin.')
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState(null)
     const [selectedFaultType, setSelectedFaultType] = useState('DEFAULT')
+    const [metrics, setMetrics] = useState({
+        trainingSamples: 0,
+        healthyStability: 100.0,
+        faultCaptureRate: 100.0
+    })
 
     // Poll system state every 2 seconds
     useEffect(() => {
@@ -41,6 +46,19 @@ export default function SystemControlPanel() {
                 setSystemState(data.state)
                 setMessage(data.message)
                 setError(null)
+
+                // Update metrics
+                const newMetrics = {
+                    trainingSamples: data.training_samples || 0,
+                    healthyStability: data.healthy_stability || 100.0,
+                    faultCaptureRate: data.fault_capture_rate || 100.0
+                }
+                setMetrics(newMetrics)
+
+                // Notify parent of metrics update
+                if (onMetricsUpdate) {
+                    onMetricsUpdate(newMetrics)
+                }
             } catch (err) {
                 // Don't show error during polling, just keep last state
                 console.error('State poll error:', err)
@@ -50,7 +68,7 @@ export default function SystemControlPanel() {
         fetchState()
         const interval = setInterval(fetchState, 2000)
         return () => clearInterval(interval)
-    }, [])
+    }, [onMetricsUpdate])
 
     // Button handlers
     const handleCalibrate = useCallback(async () => {

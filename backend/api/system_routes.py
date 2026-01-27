@@ -10,7 +10,7 @@ Provides lifecycle control endpoints for terminal-free demo:
 
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Optional, Dict, Any
 
@@ -48,7 +48,7 @@ class FaultType(str, Enum):
 
 
 class SystemStateManager:
-    """Thread-safe singleton for managing system state."""
+    """Thread-safe singleton for managing system state and validation metrics."""
     
     def __init__(self):
         self._state = SystemState.IDLE
@@ -58,6 +58,13 @@ class SystemStateManager:
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._active_thread: Optional[threading.Thread] = None
+        
+        # Validation Metrics
+        self._training_samples = 0
+        self._healthy_total = 0
+        self._healthy_correct = 0  # Healthy classified as LOW risk
+        self._faulty_total = 0
+        self._faulty_correct = 0   # Faulty classified as HIGH+ risk
     
     @property
     def state(self) -> SystemState:
@@ -79,12 +86,59 @@ class SystemStateManager:
         with self._lock:
             return self._fault_type
     
+    @property
+    def training_samples(self) -> int:
+        with self._lock:
+            return self._training_samples
+    
+    @property
+    def healthy_stability(self) -> float:
+        """Healthy Stability: % of healthy points classified as LOW risk."""
+        with self._lock:
+            if self._healthy_total == 0:
+                return 100.0
+            return round((self._healthy_correct / self._healthy_total) * 100, 1)
+    
+    @property
+    def fault_capture_rate(self) -> float:
+        """Fault Detection Rate: % of faulty points classified as HIGH+ risk."""
+        with self._lock:
+            if self._faulty_total == 0:
+                return 100.0
+            return round((self._faulty_correct / self._faulty_total) * 100, 1)
+    
     def set_state(self, state: SystemState, message: str, fault_type: Optional[FaultType] = None):
         with self._lock:
             self._state = state
             self._message = message
             self._started_at = datetime.now(timezone.utc)
             self._fault_type = fault_type
+    
+    def set_training_samples(self, count: int):
+        with self._lock:
+            self._training_samples = count
+    
+    def reset_metrics(self):
+        """Reset validation metrics (called on calibrate/stop)."""
+        with self._lock:
+            self._healthy_total = 0
+            self._healthy_correct = 0
+            self._faulty_total = 0
+            self._faulty_correct = 0
+    
+    def record_healthy_classification(self, is_low_risk: bool):
+        """Record a healthy point classification."""
+        with self._lock:
+            self._healthy_total += 1
+            if is_low_risk:
+                self._healthy_correct += 1
+    
+    def record_faulty_classification(self, is_high_risk: bool):
+        """Record a faulty point classification."""
+        with self._lock:
+            self._faulty_total += 1
+            if is_high_risk:
+                self._faulty_correct += 1
     
     def stop_background_task(self):
         """Signal background thread to stop."""
@@ -110,11 +164,15 @@ _state_manager = SystemStateManager()
 # =============================================================================
 
 class StateResponse(BaseModel):
-    """Response for GET /system/state."""
+    """Response for GET /system/state with validation metrics."""
     state: str
     message: str
     started_at: Optional[datetime] = None
     fault_type: Optional[str] = None
+    # Validation Metrics
+    training_samples: int = 0
+    healthy_stability: float = 100.0
+    fault_capture_rate: float = 100.0
 
 
 class ActionResponse(BaseModel):
@@ -174,84 +232,89 @@ def generate_sensor_reading(asset_id: str, is_faulty: bool = False, fault_type: 
 
 def run_calibration(asset_id: str):
     """
-    Background task: Generate healthy data, build baseline, train model.
-    Uses signal-based completion (not time-based).
+    Background task: BURST MODE calibration with 1000 samples.
+    Generates training data instantly (no live waiting).
     """
     try:
-        # Phase 1: Generate healthy data (30 samples)
+        # Reset metrics for new calibration
+        _state_manager.reset_metrics()
+        
+        # Phase 1: BURST GENERATE 1000 healthy samples (instant)
         _state_manager.set_state(
             SystemState.CALIBRATING, 
-            "Generating healthy sensor data..."
+            "Burst generating 1,000 training samples..."
         )
         
         if asset_id not in _sensor_history:
             _sensor_history[asset_id] = []
         
-        samples_needed = 30
-        for i in range(samples_needed):
+        BURST_SAMPLES = 1000
+        burst_data = []
+        
+        # Generate all samples instantly (no sleep)
+        for i in range(BURST_SAMPLES):
             if _state_manager.should_stop():
                 _state_manager.set_state(SystemState.IDLE, "Calibration cancelled.")
                 return
             
             reading = generate_sensor_reading(asset_id, is_faulty=False)
-            reading["timestamp"] = datetime.now(timezone.utc).isoformat()
+            # Spread timestamps across the last hour for realistic baseline
+            fake_time = datetime.now(timezone.utc) - timedelta(seconds=(BURST_SAMPLES - i) * 3.6)
+            reading["timestamp"] = fake_time.isoformat()
             reading["is_faulty"] = False
-            _sensor_history[asset_id].append(reading)
+            burst_data.append(reading)
             
-            # Update progress
-            progress = int((i + 1) / samples_needed * 50)
-            _state_manager.set_state(
-                SystemState.CALIBRATING,
-                f"Generating healthy data... {progress}%"
-            )
-            time.sleep(0.5)  # 0.5s between samples
+            # Update progress every 100 samples
+            if i % 100 == 0:
+                _state_manager.set_state(
+                    SystemState.CALIBRATING,
+                    f"Generating training data... {i}/{BURST_SAMPLES}"
+                )
         
-        # Phase 2: Build baseline
-        _state_manager.set_state(SystemState.CALIBRATING, "Building baseline profile...")
+        # Store in history (keep last 100 for display, full for training)
+        _sensor_history[asset_id] = burst_data[-100:]
+        _state_manager.set_training_samples(BURST_SAMPLES)
         
-        history = _sensor_history[asset_id]
-        df = pd.DataFrame(history)
+        # Phase 2: Build baseline from burst data
+        _state_manager.set_state(SystemState.CALIBRATING, "Building baseline profile from 1,000 samples...")
+        
+        df = pd.DataFrame(burst_data)
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df.set_index('timestamp', inplace=True)
-        
-        if 'is_faulty' in df.columns:
-            healthy_df = df[df['is_faulty'] == False].copy()
-            healthy_df['is_fault_injected'] = False
-        else:
-            healthy_df = df.copy()
-            healthy_df['is_fault_injected'] = False
+        df['is_fault_injected'] = False
         
         builder = BaselineBuilder()
-        baseline = builder.build(healthy_df, asset_id=asset_id)
+        baseline = builder.build(df, asset_id=asset_id)
         _baselines[asset_id] = baseline
         
-        # Phase 3: Train anomaly detector
-        _state_manager.set_state(SystemState.CALIBRATING, "Training anomaly detection model...")
+        # Phase 3: Train anomaly detector on full dataset
+        _state_manager.set_state(SystemState.CALIBRATING, "Training anomaly model on 1,000 samples...")
         
         from backend.features.calculator import compute_all_features
         
         feature_data = []
-        for i in range(10, len(healthy_df)):
-            row = healthy_df.iloc[i]
-            features = compute_all_features(healthy_df.iloc[:i+1], i, row.get('power_factor', 0.9))
+        # Sample every 10th point for features (100 feature samples)
+        for i in range(50, len(df), 10):
+            row = df.iloc[i]
+            features = compute_all_features(df.iloc[:i+1], i, row.get('power_factor', 0.9))
             feature_cols = ['voltage_rolling_mean_1h', 'current_spike_count', 
                            'power_factor_efficiency_score', 'vibration_intensity_rms']
             if all(features.get(col) is not None for col in feature_cols):
                 feature_data.append({col: features[col] for col in feature_cols})
         
-        if len(feature_data) >= 5:
+        if len(feature_data) >= 10:
             feature_df = pd.DataFrame(feature_data)
             detector = AnomalyDetector(asset_id=asset_id, contamination=0.05)
             detector.train(feature_df)
             _detectors[asset_id] = detector
         
-        # SIGNAL-BASED COMPLETION: Calibration finished
+        # CALIBRATION COMPLETE
         _state_manager.set_state(
             SystemState.MONITORING_HEALTHY,
-            "Calibration complete. System is monitoring."
+            f"Calibration complete. Trained on {BURST_SAMPLES} samples."
         )
         
-        # Continue generating healthy monitoring data
+        # Continue generating healthy monitoring data with metrics tracking
         while not _state_manager.should_stop():
             if _state_manager.state != SystemState.MONITORING_HEALTHY:
                 break
@@ -277,9 +340,13 @@ def run_calibration(asset_id: str):
             reading["is_faulty"] = is_anomaly
             _sensor_history[asset_id].append(reading)
             
-            # Keep only last 1000 readings
-            if len(_sensor_history[asset_id]) > 1000:
-                _sensor_history[asset_id] = _sensor_history[asset_id][-1000:]
+            # TRACK HEALTHY STABILITY METRIC
+            # Healthy data classified as LOW risk = correct
+            _state_manager.record_healthy_classification(is_low_risk=(not is_anomaly))
+            
+            # Keep only last 100 readings for display
+            if len(_sensor_history[asset_id]) > 100:
+                _sensor_history[asset_id] = _sensor_history[asset_id][-100:]
             
             time.sleep(1.0)
     
@@ -288,7 +355,7 @@ def run_calibration(asset_id: str):
 
 
 def run_fault_injection(asset_id: str, fault_type: FaultType):
-    """Background task: Generate faulty sensor data."""
+    """Background task: Generate faulty sensor data with metrics tracking."""
     try:
         while not _state_manager.should_stop():
             if _state_manager.state != SystemState.FAULT_INJECTION:
@@ -298,7 +365,7 @@ def run_fault_injection(asset_id: str, fault_type: FaultType):
             reading["timestamp"] = datetime.now(timezone.utc).isoformat()
             
             # Auto-detect against baseline (should flag as anomaly)
-            is_anomaly = True  # Fault injection always produces anomalies
+            is_anomaly = False
             if asset_id in _baselines:
                 bl = _baselines[asset_id]
                 for signal_name, value in [('voltage_v', reading['voltage_v']),
@@ -315,9 +382,13 @@ def run_fault_injection(asset_id: str, fault_type: FaultType):
             reading["is_faulty"] = is_anomaly
             _sensor_history[asset_id].append(reading)
             
-            # Keep only last 1000 readings
-            if len(_sensor_history[asset_id]) > 1000:
-                _sensor_history[asset_id] = _sensor_history[asset_id][-1000:]
+            # TRACK FAULT CAPTURE RATE METRIC
+            # Faulty data classified as HIGH+ risk (detected as anomaly) = correct
+            _state_manager.record_faulty_classification(is_high_risk=is_anomaly)
+            
+            # Keep only last 100 readings for display
+            if len(_sensor_history[asset_id]) > 100:
+                _sensor_history[asset_id] = _sensor_history[asset_id][-100:]
             
             time.sleep(1.0)
     
@@ -331,12 +402,15 @@ def run_fault_injection(asset_id: str, fault_type: FaultType):
 
 @router.get("/state", response_model=StateResponse)
 async def get_system_state():
-    """Get current system state."""
+    """Get current system state with validation metrics."""
     return StateResponse(
         state=_state_manager.state.value,
         message=_state_manager.message,
         started_at=_state_manager.started_at,
-        fault_type=_state_manager.fault_type.value if _state_manager.fault_type else None
+        fault_type=_state_manager.fault_type.value if _state_manager.fault_type else None,
+        training_samples=_state_manager.training_samples,
+        healthy_stability=_state_manager.healthy_stability,
+        fault_capture_rate=_state_manager.fault_capture_rate
     )
 
 

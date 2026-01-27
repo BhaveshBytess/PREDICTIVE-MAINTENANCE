@@ -18,6 +18,7 @@ import HealthSummary from './components/HealthSummary/HealthSummary'
 import InsightPanel from './components/InsightPanel/InsightPanel'
 import OperatorLog from './components/OperatorLog/OperatorLog'
 import SystemControlPanel from './components/SystemControlPanel'
+import PerformanceCard from './components/PerformanceCard'
 
 // API
 import { fetchHealthStatus, fetchDataHistory, getReportUrl, buildBaseline, checkApiHealth } from './api/client'
@@ -43,6 +44,11 @@ function App() {
     const [chartData, setChartData] = useState([])
     const [anomalyPoints, setAnomalyPoints] = useState([])
     const [sampleCount, setSampleCount] = useState(0)
+    const [validationMetrics, setValidationMetrics] = useState({
+        trainingSamples: 0,
+        healthyStability: 100.0,
+        faultCaptureRate: 100.0
+    })
 
     // Fetch data from API
     const fetchData = useCallback(async () => {
@@ -126,7 +132,7 @@ function App() {
                 {/* Left Column: Controls + Metrics + Chart */}
                 <div className={styles.leftColumn}>
                     {/* System Control Panel */}
-                    <SystemControlPanel />
+                    <SystemControlPanel onMetricsUpdate={setValidationMetrics} />
 
                     {/* 3 Metric Cards in a Row */}
                     <div className={styles.metricsGrid}>
@@ -176,6 +182,13 @@ function App() {
 
                     {/* Operator Input Log */}
                     <OperatorLog />
+
+                    {/* Validation Scorecard */}
+                    <PerformanceCard
+                        trainingSamples={validationMetrics.trainingSamples}
+                        healthyStability={validationMetrics.healthyStability}
+                        faultCaptureRate={validationMetrics.faultCaptureRate}
+                    />
 
                     {/* Download Report Button */}
                     <button
