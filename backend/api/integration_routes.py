@@ -207,8 +207,10 @@ async def get_health_status(asset_id: str):
             current_value = latest.get(signal, 0)
             
             # Calculate z-score (number of standard deviations from mean)
-            if profile.std > 0:
-                z_score = abs(current_value - profile.mean) / profile.std
+            # Use minimum std floor to prevent divide-by-small-number issues
+            effective_std = max(profile.std, profile.mean * 0.02)  # At least 2% of mean
+            if effective_std > 0:
+                z_score = abs(current_value - profile.mean) / effective_std
                 max_deviation = max(max_deviation, z_score)
     
     # Convert z-score to anomaly score [0, 1]
