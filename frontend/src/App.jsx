@@ -19,6 +19,7 @@ import InsightPanel from './components/InsightPanel/InsightPanel'
 import OperatorLog from './components/OperatorLog/OperatorLog'
 import SystemControlPanel from './components/SystemControlPanel'
 import PerformanceCard from './components/PerformanceCard'
+import SandboxModal from './components/SandboxModal'
 
 // API
 import { fetchHealthStatus, fetchDataHistory, getReportUrl, buildBaseline, checkApiHealth } from './api/client'
@@ -49,6 +50,7 @@ function App() {
         healthyStability: 100.0,
         faultCaptureRate: 100.0
     })
+    const [isSandboxOpen, setIsSandboxOpen] = useState(false)
 
     // Fetch data from API
     const fetchData = useCallback(async () => {
@@ -197,8 +199,23 @@ function App() {
                     >
                         DOWNLOAD REPORT (PDF / Excel)
                     </button>
+
+                    {/* What-If Analysis Button */}
+                    <button
+                        className={styles.sandboxBtn}
+                        onClick={() => setIsSandboxOpen(true)}
+                    >
+                        🔬 What-If Analysis
+                    </button>
                 </div>
             </main>
+
+            {/* Sandbox Modal */}
+            <SandboxModal
+                isOpen={isSandboxOpen}
+                onClose={() => setIsSandboxOpen(false)}
+                assetId={ASSET_ID}
+            />
         </div>
     )
 }
