@@ -235,10 +235,10 @@ async def get_health_status(asset_id: str):
     else:
         anomaly_score = min(0.95, 0.6 + (max_deviation - 2.0) * 0.15)  # 0.6+
     
-    # Add realistic baseline noise (±5%) so healthy readings show 90-100, not always 100
+    # Add realistic baseline noise so healthy readings show 85-100 range, not just 98-100
     import random
-    baseline_noise = random.uniform(0, 0.1)  # Small random variation
-    anomaly_score = anomaly_score + baseline_noise * (0.15 if anomaly_score < 0.1 else 0.05)
+    baseline_noise = random.uniform(0, 0.15)  # Up to 15% variation
+    anomaly_score = anomaly_score + baseline_noise
     
     anomaly_score = min(0.98, max(0.0, anomaly_score))  # Clamp to [0, 0.98]
     

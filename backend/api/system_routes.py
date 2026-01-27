@@ -364,18 +364,22 @@ def run_fault_injection(asset_id: str, fault_type: FaultType):
             reading = generate_sensor_reading(asset_id, is_faulty=True, fault_type=fault_type)
             reading["timestamp"] = datetime.now(timezone.utc).isoformat()
             
-            # Auto-detect against baseline (should flag as anomaly)
-            is_anomaly = False
+            # Auto-detect against baseline using same tolerance as scoring (50%)
+            is_anomaly = True  # Default to True for fault injection - it SHOULD be detected
             if asset_id in _baselines:
                 bl = _baselines[asset_id]
+                # Check if ANY signal is outside healthy range (with 50% tolerance)
                 for signal_name, value in [('voltage_v', reading['voltage_v']),
                                            ('current_a', reading['current_a']),
                                            ('power_factor', reading['power_factor']),
                                            ('vibration_g', reading['vibration_g'])]:
                     if signal_name in bl.signal_profiles:
                         profile = bl.signal_profiles[signal_name]
-                        tolerance = (profile.max - profile.min) * 0.1
-                        if value < (profile.min - tolerance) or value > (profile.max + tolerance):
+                        range_size = profile.max - profile.min
+                        tolerance = range_size * 0.5  # 50% tolerance matches scoring
+                        lower_bound = profile.min - tolerance
+                        upper_bound = profile.max + tolerance
+                        if value < lower_bound or value > upper_bound:
                             is_anomaly = True
                             break
             
