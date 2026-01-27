@@ -299,6 +299,117 @@ def get_live_comparison(asset_id: str, input_data: ManualTestInput) -> Optional[
     )
 
 
+def _heuristic_scoring(input_data: ManualTestInput) -> float:
+    """
+    Fallback heuristic scoring when ML detector is not available.
+    
+    Uses deviation from healthy baseline values to compute anomaly score.
+    This produces a gradual score across all risk levels.
+    """
+    # Healthy baseline values (Indian Grid context)
+    HEALTHY_VOLTAGE = 230.0
+    HEALTHY_CURRENT = 15.0
+    HEALTHY_PF = 0.92
+    HEALTHY_VIBRATION = 0.15
+    
+    # Thresholds for deviation
+    VOLTAGE_TOLERANCE = 15.0   # +/- 15V is acceptable
+    CURRENT_TOLERANCE = 8.0    # +/- 8A is acceptable
+    PF_TOLERANCE = 0.12        # 0.80+ is acceptable
+    VIBRATION_TOLERANCE = 0.35 # Up to 0.5g is acceptable
+    
+    # Calculate individual deviations (0 = perfect, 1 = at tolerance, >1 = beyond)
+    voltage_dev = abs(input_data.voltage_v - HEALTHY_VOLTAGE) / VOLTAGE_TOLERANCE
+    current_dev = max(0, input_data.current_a - HEALTHY_CURRENT) / CURRENT_TOLERANCE
+    pf_dev = max(0, HEALTHY_PF - input_data.power_factor) / PF_TOLERANCE
+    vibration_dev = max(0, input_data.vibration_g - HEALTHY_VIBRATION) / VIBRATION_TOLERANCE
+    
+    # Weighted combination (vibration and PF are more critical)
+    weighted_dev = (
+        voltage_dev * 0.2 +
+        current_dev * 0.2 +
+        pf_dev * 0.3 +
+        vibration_dev * 0.3
+    )
+    
+    # Convert to anomaly score [0, 1] using sigmoid-like curve
+    # This ensures gradual transitions between risk levels
+    if weighted_dev <= 0.3:
+        # LOW risk zone: health 75-100
+        anomaly_score = weighted_dev * 0.25 / 0.3  # Maps to 0-0.25
+    elif weighted_dev <= 0.7:
+        # MODERATE risk zone: health 50-75
+        anomaly_score = 0.25 + (weighted_dev - 0.3) * 0.25 / 0.4  # Maps to 0.25-0.50
+    elif weighted_dev <= 1.2:
+        # HIGH risk zone: health 25-50
+        anomaly_score = 0.50 + (weighted_dev - 0.7) * 0.25 / 0.5  # Maps to 0.50-0.75
+    else:
+        # CRITICAL risk zone: health 0-25
+        anomaly_score = 0.75 + min(0.24, (weighted_dev - 1.2) * 0.12)  # Maps to 0.75-0.99
+    
+    return min(0.99, max(0.0, anomaly_score))
+
+
+def _heuristic_contributions(input_data: ManualTestInput, features: Dict[str, float]) -> List[FeatureContribution]:
+    """
+    Compute feature contributions using heuristic when ML scaler is not available.
+    """
+    # Healthy baseline values
+    HEALTHY = {
+        'voltage_rolling_mean_1h': 230.0,
+        'current_spike_count': 0,
+        'power_factor_efficiency_score': 0.92,
+        'vibration_intensity_rms': 0.15,
+        'voltage_stability': 0.0,
+        'power_vibration_ratio': 0.16
+    }
+    
+    # Standard deviation estimates
+    STD = {
+        'voltage_rolling_mean_1h': 5.0,
+        'current_spike_count': 1.0,
+        'power_factor_efficiency_score': 0.05,
+        'vibration_intensity_rms': 0.1,
+        'voltage_stability': 3.0,
+        'power_vibration_ratio': 0.2
+    }
+    
+    contributions = []
+    raw_deviations = {}
+    
+    for name in features:
+        value = features[name]
+        mean = HEALTHY.get(name, 0)
+        std = STD.get(name, 1.0)
+        
+        deviation = abs(value - mean) / std
+        raw_deviations[name] = deviation
+    
+    # Normalize to percentages
+    total_deviation = sum(raw_deviations.values()) + 0.001
+    
+    for name, deviation in raw_deviations.items():
+        contribution_pct = (deviation / total_deviation) * 100
+        
+        if deviation < 1.0:
+            status = "normal"
+        elif deviation < 2.5:
+            status = "elevated"
+        else:
+            status = "critical"
+        
+        contributions.append(FeatureContribution(
+            feature=_format_feature_name(name),
+            value=features.get(name, 0),
+            contribution_percent=round(contribution_pct, 1),
+            deviation_from_normal=round(deviation, 2),
+            status=status
+        ))
+    
+    contributions.sort(key=lambda x: x.contribution_percent, reverse=True)
+    return contributions
+
+
 # =============================================================================
 # ENDPOINTS
 # =============================================================================
@@ -313,21 +424,11 @@ async def sandbox_predict(input_data: ManualTestInput):
     Run What-If analysis on manual sensor inputs.
     
     - Computes derived features
-    - Runs through calibrated ML model
+    - Runs through calibrated ML model (or fallback heuristic)
     - Returns anomaly score, risk level, and feature contributions
     - Compares against live system state if available
     """
     asset_id = input_data.asset_id
-    
-    # Check if detector is trained
-    if asset_id not in _detectors or not _detectors[asset_id].is_trained:
-        # Use a fallback simple scoring if no detector
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"No trained detector for asset '{asset_id}'. Please calibrate the system first."
-        )
-    
-    detector = _detectors[asset_id]
     
     # Compute all features (base + derived)
     features = compute_derived_features(
@@ -337,19 +438,34 @@ async def sandbox_predict(input_data: ManualTestInput):
         vibration=input_data.vibration_g
     )
     
-    # Run prediction using detector's score_single method
-    try:
-        anomaly_score = detector.score_single({
-            'voltage_rolling_mean_1h': features['voltage_rolling_mean_1h'],
-            'current_spike_count': features['current_spike_count'],
-            'power_factor_efficiency_score': features['power_factor_efficiency_score'],
-            'vibration_intensity_rms': features['vibration_intensity_rms']
-        })
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Prediction failed: {str(e)}"
+    # Check if detector is trained
+    if asset_id in _detectors and _detectors[asset_id].is_trained:
+        # Use ML detector
+        detector = _detectors[asset_id]
+        
+        try:
+            anomaly_score = detector.score_single({
+                'voltage_rolling_mean_1h': features['voltage_rolling_mean_1h'],
+                'current_spike_count': features['current_spike_count'],
+                'power_factor_efficiency_score': features['power_factor_efficiency_score'],
+                'vibration_intensity_rms': features['vibration_intensity_rms']
+            })
+        except Exception as e:
+            # Fallback to heuristic if ML fails
+            anomaly_score = _heuristic_scoring(input_data)
+        
+        # Compute feature contributions using scaler
+        contributions = compute_feature_contributions(
+            features=features,
+            scaler=detector._scaler,
+            detector=detector
         )
+    else:
+        # No detector trained - use heuristic scoring
+        anomaly_score = _heuristic_scoring(input_data)
+        
+        # Use simple deviation-based contributions
+        contributions = _heuristic_contributions(input_data, features)
     
     # Calculate health score and risk level
     health_score = int(100 * (1.0 - anomaly_score))
@@ -363,13 +479,6 @@ async def sandbox_predict(input_data: ManualTestInput):
         risk_level = "HIGH"
     else:
         risk_level = "CRITICAL"
-    
-    # Compute feature contributions
-    contributions = compute_feature_contributions(
-        features=features,
-        scaler=detector._scaler,
-        detector=detector
-    )
     
     # Generate insight text
     insight = generate_insight(anomaly_score, risk_level, contributions, input_data)
