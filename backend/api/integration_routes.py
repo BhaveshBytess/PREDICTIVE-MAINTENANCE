@@ -212,9 +212,24 @@ async def get_health_status(asset_id: str):
                 max_deviation = max(max_deviation, z_score)
     
     # Convert z-score to anomaly score [0, 1]
-    # z=0 -> score=0, z=3 -> score=0.5, z=6 -> score=0.8, z=10+ -> score=0.95
+    # HEALTHY DATA: z < 2 -> very low anomaly score (0-0.1) -> health 80+
+    # MODERATE: z = 2-4 -> anomaly 0.1-0.3 -> health 50-80
+    # HIGH: z = 4-6 -> anomaly 0.3-0.6 -> health 20-50  
+    # CRITICAL: z > 6 -> anomaly 0.6+ -> health < 20
     import math
-    anomaly_score = 1 - (1 / (1 + (max_deviation / 5)))
+    if max_deviation < 2.0:
+        # Healthy zone: keep anomaly score very low
+        anomaly_score = max_deviation * 0.05  # z=2 -> 0.1
+    elif max_deviation < 4.0:
+        # Moderate zone
+        anomaly_score = 0.1 + (max_deviation - 2.0) * 0.1  # z=4 -> 0.3
+    elif max_deviation < 6.0:
+        # High zone
+        anomaly_score = 0.3 + (max_deviation - 4.0) * 0.15  # z=6 -> 0.6
+    else:
+        # Critical zone
+        anomaly_score = min(0.95, 0.6 + (max_deviation - 6.0) * 0.05)
+    
     anomaly_score = min(0.98, max(0.0, anomaly_score))  # Clamp to [0, 0.98]
     
     # Also check ML detector if available (use max of both)

@@ -1,87 +1,48 @@
-/* PerformanceCard Styles */
+/* PerformanceCard Styles - Simple and Clean */
 
 .container {
     background: rgba(30, 30, 50, 0.8);
     backdrop-filter: blur(10px);
     border-radius: 16px;
-    padding: 1.5rem;
+    padding: 1.25rem;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
 }
 
 .title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 600;
     margin: 0 0 1rem 0;
     color: #fff;
 }
 
-.icon {
-    font-size: 1.2rem;
-}
-
-.metricsGrid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
-}
-
-.metric {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 12px;
-    padding: 1rem;
+.metricRow {
     display: flex;
-    flex-direction: column;
+    justify-content: space-between;
     align-items: center;
-    gap: 0.5rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.metricLabel {
-    font-size: 0.8rem;
+.metricRow:last-child {
+    border-bottom: none;
+}
+
+.label {
+    font-size: 0.85rem;
     color: rgba(255, 255, 255, 0.6);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
 }
 
-.metricValue {
-    font-size: 1.5rem;
-    font-weight: 700;
+.value {
+    font-size: 0.9rem;
+    font-weight: 600;
     color: #fff;
 }
 
-.metricValue.green {
+.value.good {
     color: #22c55e;
 }
 
-.metricValue.yellow {
+.value.warn {
     color: #eab308;
-}
-
-.metricValue.red {
-    color: #ef4444;
-}
-
-.metricStatus {
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.5);
-}
-
-.footer {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    text-align: center;
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.4);
-    font-style: italic;
-}
-
-/* Responsive */
-@media (max-width: 600px) {
-    .metricsGrid {
-        grid-template-columns: 1fr;
-    }
 }
