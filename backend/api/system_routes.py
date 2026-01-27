@@ -582,6 +582,10 @@ async def stop_session():
     # Stop background task
     _state_manager.stop_background_task()
     
+    # Reset metrics for new session
+    _state_manager.reset_metrics()
+    _state_manager.set_training_samples(0)
+    
     # Return to IDLE
     _state_manager.set_state(
         SystemState.IDLE,
