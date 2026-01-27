@@ -11,6 +11,11 @@ Constraints:
 - One model per asset (no global models)
 - No auto-retraining
 - Deterministic (random_state=42)
+
+V2 Enhancements:
+- Added derived features (voltage_stability, power_vibration_ratio)
+- Quantile-based score calibration
+- Improved separation between healthy and faulty data
 """
 
 import joblib
@@ -25,18 +30,29 @@ from sklearn.preprocessing import StandardScaler
 from pydantic import BaseModel, Field
 
 
-# Feature columns used for anomaly detection
-# STRICTLY EXCLUDE raw instantaneous signals (voltage_v, current_a)
-FEATURE_COLUMNS = [
+# Original feature columns from Phase 4
+BASE_FEATURE_COLUMNS = [
     'voltage_rolling_mean_1h',
     'current_spike_count',
     'power_factor_efficiency_score',
     'vibration_intensity_rms',
 ]
 
+# Derived feature columns (Phase 1 Enhancement)
+DERIVED_FEATURE_COLUMNS = [
+    'voltage_stability',        # abs(voltage - 230.0)
+    'power_vibration_ratio',    # vibration_rms / (power_factor + 0.01)
+]
+
+# All feature columns (input to model)
+FEATURE_COLUMNS = BASE_FEATURE_COLUMNS + DERIVED_FEATURE_COLUMNS
+
+# Indian Grid nominal voltage (for stability calculation)
+NOMINAL_VOLTAGE = 230.0
+
 # Model hyperparameters
-DEFAULT_CONTAMINATION = 0.001  # Very low since training data is pure healthy
-DEFAULT_RANDOM_STATE = 42  # Deterministic training
+DEFAULT_CONTAMINATION = 0.05  # Increased from 0.001 for better calibration
+DEFAULT_RANDOM_STATE = 42     # Deterministic training
 DEFAULT_N_ESTIMATORS = 100
 
 
@@ -50,11 +66,16 @@ class AnomalyScore(BaseModel):
 
 class AnomalyDetector:
     """
-    Isolation Forest-based anomaly detector.
+    Isolation Forest-based anomaly detector with calibrated scoring.
     
     Score semantics:
     - 0.0 = Perfectly Normal (matches baseline)
     - 1.0 = Highly Anomalous (deviation from baseline)
+    
+    V2 Features:
+    - Derived features for better separation
+    - Quantile-calibrated scores
+    - StandardScaler for all features
     
     One model per asset. No auto-retraining.
     """
@@ -71,7 +92,7 @@ class AnomalyDetector:
         
         Args:
             asset_id: Asset this detector belongs to
-            contamination: Expected proportion of outliers (low for pure data)
+            contamination: Expected proportion of outliers
             n_estimators: Number of trees in the forest
             random_state: Random seed for reproducibility
         """
@@ -85,11 +106,70 @@ class AnomalyDetector:
         self._is_trained = False
         self._training_timestamp: Optional[datetime] = None
         self._training_sample_count: int = 0
+        
+        # Phase 2: Quantile calibration threshold
+        self._threshold_score: float = 0.5  # Default, updated during training
     
     @property
     def is_trained(self) -> bool:
         """Check if model has been trained."""
         return self._is_trained
+    
+    def _compute_derived_features(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Compute derived features from base features.
+        
+        Phase 1 Enhancement:
+        - voltage_stability: Distance from nominal Indian Grid voltage
+        - power_vibration_ratio: Interaction term for fault detection
+        
+        Args:
+            data: DataFrame with base feature columns
+            
+        Returns:
+            DataFrame with base + derived features
+        """
+        result = data.copy()
+        
+        # Compute voltage_stability: abs(voltage_rolling_mean - 230.0)
+        if 'voltage_rolling_mean_1h' in result.columns:
+            result['voltage_stability'] = abs(result['voltage_rolling_mean_1h'] - NOMINAL_VOLTAGE)
+        else:
+            result['voltage_stability'] = 0.0
+        
+        # Compute power_vibration_ratio: vibration / (power_factor + epsilon)
+        if 'vibration_intensity_rms' in result.columns and 'power_factor_efficiency_score' in result.columns:
+            result['power_vibration_ratio'] = (
+                result['vibration_intensity_rms'] / 
+                (result['power_factor_efficiency_score'] + 0.01)
+            )
+        else:
+            result['power_vibration_ratio'] = 0.0
+        
+        return result
+    
+    def _compute_derived_features_single(self, features: Dict[str, float]) -> Dict[str, float]:
+        """
+        Compute derived features for a single feature set.
+        
+        Args:
+            features: Dict of base feature values
+            
+        Returns:
+            Dict with base + derived features
+        """
+        result = features.copy()
+        
+        # Compute voltage_stability
+        voltage_mean = features.get('voltage_rolling_mean_1h', NOMINAL_VOLTAGE)
+        result['voltage_stability'] = abs(voltage_mean - NOMINAL_VOLTAGE)
+        
+        # Compute power_vibration_ratio
+        vibration = features.get('vibration_intensity_rms', 0.0)
+        power_factor = features.get('power_factor_efficiency_score', 0.92)
+        result['power_vibration_ratio'] = vibration / (power_factor + 0.01)
+        
+        return result
     
     def train(self, data: pd.DataFrame) -> None:
         """
@@ -105,21 +185,28 @@ class AnomalyDetector:
         if data.empty:
             raise ValueError("Cannot train on empty data")
         
-        # Extract features (ignore raw signals)
-        features = self._extract_features(data)
+        # Extract base features
+        base_features = self._extract_base_features(data)
         
-        if features.shape[0] < 10:
-            raise ValueError(f"Insufficient data for training: {features.shape[0]} samples (need >= 10)")
+        if base_features.shape[0] < 10:
+            raise ValueError(f"Insufficient data for training: {base_features.shape[0]} samples (need >= 10)")
+        
+        # Add derived features
+        enhanced_features = self._compute_derived_features(base_features)
         
         # Drop rows with NaN (incomplete feature windows)
-        features_clean = features.dropna()
+        features_clean = enhanced_features.dropna()
         
         if features_clean.shape[0] < 10:
             raise ValueError(f"Insufficient valid data after dropping NaN: {features_clean.shape[0]} samples")
         
-        # Scale features
+        # Get all feature columns (base + derived)
+        all_feature_cols = [col for col in FEATURE_COLUMNS if col in features_clean.columns]
+        feature_matrix = features_clean[all_feature_cols]
+        
+        # Scale ALL features (Phase 1: StandardScaler)
         self._scaler = StandardScaler()
-        features_scaled = self._scaler.fit_transform(features_clean)
+        features_scaled = self._scaler.fit_transform(feature_matrix)
         
         # Train Isolation Forest
         self._model = IsolationForest(
@@ -129,6 +216,15 @@ class AnomalyDetector:
             n_jobs=-1  # Use all cores
         )
         self._model.fit(features_scaled)
+        
+        # Phase 2: Compute quantile threshold for calibration
+        # Get decision scores for training data
+        training_decisions = self._model.decision_function(features_scaled)
+        
+        # Decision function: higher = more normal
+        # We want the 99th percentile of healthy data as our threshold
+        # Invert the sign because we'll invert later for anomaly scores
+        self._threshold_score = float(np.percentile(-training_decisions, 99))
         
         self._is_trained = True
         self._training_timestamp = datetime.now(timezone.utc)
@@ -150,28 +246,31 @@ class AnomalyDetector:
         if not self._is_trained:
             raise RuntimeError("Model not trained. Call train() first.")
         
-        # Extract features
-        features = self._extract_features(data)
+        # Extract and enhance features
+        base_features = self._extract_base_features(data)
+        enhanced_features = self._compute_derived_features(base_features)
+        
+        # Get all feature columns
+        all_feature_cols = [col for col in FEATURE_COLUMNS if col in enhanced_features.columns]
         
         results = []
         
-        for idx, row in features.iterrows():
+        for idx, row in enhanced_features.iterrows():
             # Handle NaN
-            if row.isna().any():
-                # Cannot score if features are incomplete
+            if row[all_feature_cols].isna().any():
                 continue
             
+            # Get feature vector
+            feature_vector = row[all_feature_cols].values.reshape(1, -1)
+            
             # Scale features
-            row_scaled = self._scaler.transform(row.values.reshape(1, -1))
+            row_scaled = self._scaler.transform(feature_vector)
             
             # Get decision function value
-            # Scikit-learn: higher = more normal
             decision_value = self._model.decision_function(row_scaled)[0]
             
-            # Invert to get anomaly score
-            # decision_function typically ranges from -0.5 to 0.5
-            # We normalize and invert: score = 1.0 - normalized
-            anomaly_score = self._invert_decision_score(decision_value)
+            # Compute calibrated anomaly score
+            anomaly_score = self._calibrated_score(decision_value)
             
             # Get timestamp
             if isinstance(idx, datetime):
@@ -185,7 +284,7 @@ class AnomalyDetector:
                 asset_id=self.asset_id,
                 timestamp=timestamp,
                 score=anomaly_score,
-                feature_values=row.to_dict()
+                feature_values=row[all_feature_cols].to_dict()
             ))
         
         return results
@@ -195,68 +294,81 @@ class AnomalyDetector:
         Score a single feature set.
         
         Args:
-            features: Dict of feature name -> value
+            features: Dict of feature name -> value (base features only)
             
         Returns:
-            Anomaly score [0, 1]
+            Calibrated anomaly score [0, 1]
         """
         if not self._is_trained:
             raise RuntimeError("Model not trained. Call train() first.")
         
-        # Build feature vector
-        feature_vector = []
-        for col in FEATURE_COLUMNS:
+        # Validate base features are present
+        for col in BASE_FEATURE_COLUMNS:
             if col not in features:
-                raise ValueError(f"Missing feature: {col}")
+                raise ValueError(f"Missing base feature: {col}")
             value = features[col]
             if value is None or np.isnan(value):
                 raise ValueError(f"Feature {col} is NaN")
-            feature_vector.append(value)
+        
+        # Add derived features
+        enhanced = self._compute_derived_features_single(features)
+        
+        # Build feature vector in correct order
+        feature_vector = [enhanced[col] for col in FEATURE_COLUMNS]
         
         # Scale and score
         scaled = self._scaler.transform([feature_vector])
         decision_value = self._model.decision_function(scaled)[0]
         
-        return self._invert_decision_score(decision_value)
+        return self._calibrated_score(decision_value)
     
-    def _extract_features(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Extract feature columns from data."""
-        available = [col for col in FEATURE_COLUMNS if col in data.columns]
+    def _extract_base_features(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Extract base feature columns from data (without derived)."""
+        available = [col for col in BASE_FEATURE_COLUMNS if col in data.columns]
         
         if not available:
             raise ValueError(
-                f"No feature columns found. Expected: {FEATURE_COLUMNS}. "
+                f"No base feature columns found. Expected: {BASE_FEATURE_COLUMNS}. "
                 f"Got: {list(data.columns)}"
             )
         
-        # Use available features
         return data[available].copy()
     
-    def _invert_decision_score(self, decision_value: float) -> float:
+    def _calibrated_score(self, decision_value: float) -> float:
         """
-        Invert scikit-learn decision function to anomaly score.
+        Convert decision function to calibrated anomaly score.
+        
+        Phase 2 Enhancement: Quantile-based calibration.
         
         Scikit-learn decision_function:
         - Higher values = more normal
         - Typically ranges from about -0.5 to 0.5
         
-        Our scoring:
-        - 0.0 = Normal
-        - 1.0 = Anomalous
+        Our calibrated scoring:
+        - 0.0 = Normal (within healthy distribution)
+        - 1.0 = Highly Anomalous (far outside healthy distribution)
         
-        Transformation: score = 1.0 - sigmoid(decision_value * k)
-        Where k scales the decision value to reasonable sigmoid input
+        Calibration formula:
+        - raw_score = -decision_value (invert so higher = more anomalous)
+        - calibrated = raw_score / (threshold * 1.5)
+        - Healthy data (< threshold) maps to < 0.67
+        - Anomalies (> threshold) map to > 0.67
         """
-        # Sigmoid transformation for smooth [0, 1] output
-        # Scale factor of 4 maps decision values well to sigmoid
-        sigmoid_input = decision_value * 4
-        sigmoid = 1.0 / (1.0 + np.exp(-sigmoid_input))
+        # Invert decision value (higher decision = more normal, so negate)
+        raw_score = -decision_value
         
-        # Invert: high decision value (normal) -> low anomaly score
-        anomaly_score = 1.0 - sigmoid
+        # Calibrate against training threshold
+        # threshold_score is the 99th percentile of healthy (-decision) values
+        calibration_factor = self._threshold_score * 1.5
         
-        # Clamp to [0, 1]
-        return float(np.clip(anomaly_score, 0.0, 1.0))
+        if calibration_factor > 0:
+            calibrated = raw_score / calibration_factor
+        else:
+            # Fallback if threshold is 0 (shouldn't happen)
+            calibrated = raw_score + 0.5
+        
+        # Clip to [0, 1]
+        return float(np.clip(calibrated, 0.0, 1.0))
     
     def save_model(self, directory: str = "backend/models") -> Path:
         """
@@ -286,6 +398,8 @@ class AnomalyDetector:
             'random_state': self.random_state,
             'training_timestamp': self._training_timestamp,
             'training_sample_count': self._training_sample_count,
+            'threshold_score': self._threshold_score,  # V2: Save calibration threshold
+            'version': 2,  # Model version
         }
         
         joblib.dump(model_data, filepath)
@@ -317,5 +431,8 @@ class AnomalyDetector:
         detector._is_trained = True
         detector._training_timestamp = model_data['training_timestamp']
         detector._training_sample_count = model_data['training_sample_count']
+        
+        # V2: Load calibration threshold (with backward compatibility)
+        detector._threshold_score = model_data.get('threshold_score', 0.5)
         
         return detector

@@ -34,6 +34,55 @@ _latest_health: Dict[str, HealthReport] = {}
 _sensor_history: Dict[str, list] = {}
 
 
+def _simple_range_check(baseline: BaselineProfile, latest: Dict[str, Any]) -> float:
+    """
+    Simple range-based anomaly scoring (fallback when ML detector unavailable).
+    
+    Used only when:
+    - Detector not yet trained
+    - ML scoring fails
+    - Insufficient history for features
+    
+    Args:
+        baseline: Baseline profile for the asset
+        latest: Latest sensor reading dict
+        
+    Returns:
+        Anomaly score [0, 1]
+    """
+    max_deviation = 0.0
+    signals = ['voltage_v', 'current_a', 'power_factor', 'vibration_g']
+    
+    for signal in signals:
+        if signal in baseline.signal_profiles:
+            profile = baseline.signal_profiles[signal]
+            current_value = latest.get(signal, 0)
+            
+            # Range-based check with 50% tolerance
+            range_size = profile.max - profile.min
+            tolerance = range_size * 0.5
+            
+            lower_bound = profile.min - tolerance
+            upper_bound = profile.max + tolerance
+            
+            if current_value < lower_bound or current_value > upper_bound:
+                if current_value < lower_bound:
+                    deviation = (lower_bound - current_value) / (range_size + 0.001)
+                else:
+                    deviation = (current_value - upper_bound) / (range_size + 0.001)
+                max_deviation = max(max_deviation, deviation)
+    
+    # Convert deviation to anomaly score
+    if max_deviation <= 0:
+        return 0.0
+    elif max_deviation < 1.0:
+        return max_deviation * 0.3
+    elif max_deviation < 2.0:
+        return 0.3 + (max_deviation - 1.0) * 0.3
+    else:
+        return min(0.95, 0.6 + (max_deviation - 2.0) * 0.15)
+
+
 class BaselineBuildRequest(BaseModel):
     """Request to build a baseline for an asset."""
     training_hours: int = Field(default=1, ge=1, le=168, description="Hours of data to use")
@@ -194,55 +243,42 @@ async def get_health_status(asset_id: str):
     
     baseline = _baselines[asset_id]
     
-    # DIRECT DEVIATION SCORING
-    # Compare current readings directly against baseline profiles
-    # This is more responsive than the Isolation Forest for extreme values
+    # CALIBRATED ML SCORING (Phase 3 Integration)
+    # Use the upgraded Isolation Forest with derived features and quantile calibration
+    anomaly_score = 0.0
     
-    max_deviation = 0.0
-    signals = ['voltage_v', 'current_a', 'power_factor', 'vibration_g']
-    
-    for signal in signals:
-        if signal in baseline.signal_profiles:
-            profile = baseline.signal_profiles[signal]
-            current_value = latest.get(signal, 0)
+    if asset_id in _detectors and _detectors[asset_id].is_trained:
+        # Use calibrated ML detector
+        detector = _detectors[asset_id]
+        
+        # Compute features from current readings
+        from backend.features.calculator import compute_all_features
+        
+        df = pd.DataFrame(_sensor_history[asset_id])
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df.set_index('timestamp', inplace=True)
+        
+        if len(df) >= 10:
+            features = compute_all_features(df, len(df)-1, latest['power_factor'])
+            feature_cols = ['voltage_rolling_mean_1h', 'current_spike_count', 
+                            'power_factor_efficiency_score', 'vibration_intensity_rms']
             
-            # SIMPLE RANGE-BASED CHECK
-            # If value is within observed min-max range (with 10% tolerance), it's healthy
-            range_size = profile.max - profile.min
-            tolerance = range_size * 0.5  # 50% tolerance beyond observed range
-            
-            lower_bound = profile.min - tolerance
-            upper_bound = profile.max + tolerance
-            
-            if current_value < lower_bound or current_value > upper_bound:
-                # Value is outside healthy range - calculate how far
-                if current_value < lower_bound:
-                    deviation = (lower_bound - current_value) / (range_size + 0.001)
-                else:
-                    deviation = (current_value - upper_bound) / (range_size + 0.001)
-                max_deviation = max(max_deviation, deviation)
-    
-    # Convert deviation to anomaly score [0, 1]
-    # deviation 0 = within range = anomaly 0 = health 100
-    # deviation 1 = one range width outside = anomaly 0.5 = health 50
-    # deviation 2+ = two range widths outside = anomaly 0.8+ = health 20
-    if max_deviation <= 0:
-        anomaly_score = 0.0
-    elif max_deviation < 1.0:
-        anomaly_score = max_deviation * 0.3  # 0-0.3
-    elif max_deviation < 2.0:
-        anomaly_score = 0.3 + (max_deviation - 1.0) * 0.3  # 0.3-0.6
+            if all(features.get(col) is not None for col in feature_cols):
+                try:
+                    feature_dict = {col: features[col] for col in feature_cols}
+                    anomaly_score = detector.score_single(feature_dict)
+                except Exception as e:
+                    # Fallback to simple range check if ML scoring fails
+                    anomaly_score = _simple_range_check(baseline, latest)
+            else:
+                anomaly_score = _simple_range_check(baseline, latest)
+        else:
+            anomaly_score = _simple_range_check(baseline, latest)
     else:
-        anomaly_score = min(0.95, 0.6 + (max_deviation - 2.0) * 0.15)  # 0.6+
-    
-    # Add realistic baseline noise so healthy readings show 85-100 range, not just 98-100
-    import random
-    baseline_noise = random.uniform(0, 0.15)  # Up to 15% variation
-    anomaly_score = anomaly_score + baseline_noise
+        # No detector trained yet - use simple range check
+        anomaly_score = _simple_range_check(baseline, latest)
     
     anomaly_score = min(0.98, max(0.0, anomaly_score))  # Clamp to [0, 0.98]
-    
-    # Range-based check is more intuitive and reliable than ML detector
     
     # Generate health assessment
     assessor = HealthAssessor(
