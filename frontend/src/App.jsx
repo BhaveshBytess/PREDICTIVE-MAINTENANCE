@@ -192,13 +192,29 @@ function App() {
                         faultCaptureRate={validationMetrics.faultCaptureRate}
                     />
 
-                    {/* Download Report Button */}
-                    <button
-                        className={styles.downloadBtn}
-                        onClick={() => handleDownloadReport('pdf')}
-                    >
-                        DOWNLOAD REPORT (PDF / Excel)
-                    </button>
+                    {/* Download Report Buttons */}
+                    <div className={styles.downloadGroup}>
+                        <button
+                            className={styles.downloadBtn}
+                            onClick={() => handleDownloadReport('industrial')}
+                        >
+                            📄 DOWNLOAD FULL REPORT (5-Page PDF)
+                        </button>
+                        <div className={styles.downloadAlt}>
+                            <button
+                                className={styles.downloadAltBtn}
+                                onClick={() => handleDownloadReport('xlsx')}
+                            >
+                                📊 Excel
+                            </button>
+                            <button
+                                className={styles.downloadAltBtn}
+                                onClick={() => handleDownloadReport('pdf')}
+                            >
+                                📋 Basic PDF
+                            </button>
+                        </div>
+                    </div>
 
                     {/* What-If Analysis Button */}
                     <button
