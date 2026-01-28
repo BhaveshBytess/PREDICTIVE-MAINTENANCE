@@ -32,7 +32,7 @@ An end-to-end **Predictive Maintenance** system that monitors industrial assets 
 | ❤️ **Health Assessment** | 0-100 health score with risk classification (LOW → CRITICAL) |
 | 💡 **Explainability** | Human-readable explanations: "Vibration 3.2σ above normal" |
 | 📈 **Dashboard** | React + Recharts real-time visualization with glassmorphism UI |
-| 📄 **Reporting** | PDF Health Certificates and Excel exports |
+| 📄 **Reporting** | 5-page Industrial Asset Health Certificate with audit trail, ROI analysis, and compliance |
 
 ---
 
@@ -184,7 +184,11 @@ predictive-maintenance/
 │   │   ├── assessor.py      # Health scoring & risk
 │   │   └── explainer.py     # Human-readable explanations
 │   └── reports/             # PDF/Excel generation
-│       └── generator.py     # ReportLab + Pandas
+│       ├── generator.py         # Basic PDF/Excel reports
+│       ├── industrial_report.py # 5-page Industrial Health Certificate
+│       ├── constants.py         # Colors, costs, thresholds
+│       ├── mock_data.py         # Simulated historical data
+│       └── components/          # Gauge, charts, audit components
 ├── frontend/
 │   ├── src/
 │   │   ├── components/      # React components
@@ -289,7 +293,7 @@ else:                   risk = LOW
   - Red (0-24): CRITICAL risk
 - ⏰ **Maintenance Window estimation** (days until recommended service)
 - 💡 **Insight panel** with specific explanations (e.g., "Vibration 3.2σ above normal")
-- 📥 **PDF/Excel download** button
+- 📥 **Download options**: 5-page Industrial Report (PDF), Basic PDF, Excel
 
 **Anomaly Visualization Logic:**
 - Red dashed lines appear **only when risk ≠ LOW**
