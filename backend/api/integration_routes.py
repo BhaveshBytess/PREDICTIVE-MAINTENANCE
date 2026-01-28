@@ -41,12 +41,13 @@ _sensor_history: Dict[str, list] = {}
 
 def _simple_range_check(baseline: BaselineProfile, latest: Dict[str, Any]) -> float:
     """
-    Simple range-based anomaly scoring (fallback when ML detector unavailable).
+    Simple range-based anomaly scoring with graduated severity response.
     
-    Used only when:
-    - Detector not yet trained
-    - ML scoring fails
-    - Insufficient history for features
+    Produces proportional anomaly scores based on deviation from baseline:
+    - Deviation 0-0.5x range: anomaly 0.0-0.25 (LOW risk, health 75+)
+    - Deviation 0.5-1.5x range: anomaly 0.25-0.45 (MODERATE risk, health 50-74)
+    - Deviation 1.5-3.0x range: anomaly 0.45-0.70 (HIGH risk, health 25-49)
+    - Deviation 3.0x+ range: anomaly 0.70-0.95 (CRITICAL risk, health 0-24)
     
     Args:
         baseline: Baseline profile for the asset
@@ -55,7 +56,8 @@ def _simple_range_check(baseline: BaselineProfile, latest: Dict[str, Any]) -> fl
     Returns:
         Anomaly score [0, 1]
     """
-    max_deviation = 0.0
+    total_deviation = 0.0
+    deviation_count = 0
     signals = ['voltage_v', 'current_a', 'power_factor', 'vibration_g']
     
     for signal in signals:
@@ -63,29 +65,49 @@ def _simple_range_check(baseline: BaselineProfile, latest: Dict[str, Any]) -> fl
             profile = baseline.signal_profiles[signal]
             current_value = latest.get(signal, 0)
             
-            # Range-based check with 50% tolerance
+            # Calculate how far outside the baseline range (no tolerance)
             range_size = profile.max - profile.min
-            tolerance = range_size * 0.5
+            if range_size < 0.001:
+                range_size = 0.001  # Avoid division by zero
             
-            lower_bound = profile.min - tolerance
-            upper_bound = profile.max + tolerance
+            if current_value < profile.min:
+                # Below minimum
+                deviation = (profile.min - current_value) / range_size
+            elif current_value > profile.max:
+                # Above maximum
+                deviation = (current_value - profile.max) / range_size
+            else:
+                # Within range
+                deviation = 0.0
             
-            if current_value < lower_bound or current_value > upper_bound:
-                if current_value < lower_bound:
-                    deviation = (lower_bound - current_value) / (range_size + 0.001)
-                else:
-                    deviation = (current_value - upper_bound) / (range_size + 0.001)
-                max_deviation = max(max_deviation, deviation)
+            total_deviation += deviation
+            deviation_count += 1
     
-    # Convert deviation to anomaly score
-    if max_deviation <= 0:
+    # Average deviation across all signals
+    if deviation_count == 0:
         return 0.0
-    elif max_deviation < 1.0:
-        return max_deviation * 0.3
-    elif max_deviation < 2.0:
-        return 0.3 + (max_deviation - 1.0) * 0.3
+    avg_deviation = total_deviation / deviation_count
+    
+    # Convert average deviation to anomaly score with graduated response
+    # This mapping is calibrated to match severity levels:
+    # MILD severity (~0.3-0.8x deviation) → anomaly 0.20-0.35 → MODERATE health
+    # MEDIUM severity (~1.0-2.0x deviation) → anomaly 0.40-0.60 → HIGH health
+    # SEVERE severity (~3.0-10x deviation) → anomaly 0.70-0.95 → CRITICAL health
+    
+    if avg_deviation <= 0:
+        return 0.0
+    elif avg_deviation < 0.3:
+        # Very slight deviation - still healthy
+        return avg_deviation * 0.5  # 0.0 - 0.15
+    elif avg_deviation < 1.0:
+        # Mild deviation - MODERATE risk target
+        return 0.15 + (avg_deviation - 0.3) * 0.30  # 0.15 - 0.36
+    elif avg_deviation < 2.5:
+        # Medium deviation - HIGH risk target  
+        return 0.36 + (avg_deviation - 1.0) * 0.20  # 0.36 - 0.66
     else:
-        return min(0.95, 0.6 + (max_deviation - 2.0) * 0.15)
+        # Severe deviation - CRITICAL risk target
+        return min(0.95, 0.66 + (avg_deviation - 2.5) * 0.06)  # 0.66 - 0.95
 
 
 class BaselineBuildRequest(BaseModel):
@@ -250,7 +272,13 @@ async def get_health_status(asset_id: str):
     
     # CALIBRATED ML SCORING (Phase 3 Integration)
     # Use the upgraded Isolation Forest with derived features and quantile calibration
+    # PLUS simple range check for more proportional severity response
     anomaly_score = 0.0
+    ml_score = 0.0
+    range_score = 0.0
+    
+    # Always compute range-based score for proportional response
+    range_score = _simple_range_check(baseline, latest)
     
     if asset_id in _detectors and _detectors[asset_id].is_trained:
         # Use calibrated ML detector
@@ -271,17 +299,30 @@ async def get_health_status(asset_id: str):
             if all(features.get(col) is not None for col in feature_cols):
                 try:
                     feature_dict = {col: features[col] for col in feature_cols}
-                    anomaly_score = detector.score_single(feature_dict)
-                except Exception as e:
-                    # Fallback to simple range check if ML scoring fails
-                    anomaly_score = _simple_range_check(baseline, latest)
+                    ml_score = detector.score_single(feature_dict)
+                except Exception:
+                    ml_score = range_score
             else:
-                anomaly_score = _simple_range_check(baseline, latest)
+                ml_score = range_score
         else:
-            anomaly_score = _simple_range_check(baseline, latest)
+            ml_score = range_score
     else:
-        # No detector trained yet - use simple range check
-        anomaly_score = _simple_range_check(baseline, latest)
+        ml_score = range_score
+    
+    # BLEND SCORES: Use the MORE PROPORTIONAL of the two scores
+    # ML detector tends to be binary (low or max), range check is proportional
+    # For better severity graduation:
+    # - If range_score indicates mild fault, don't let ML override to critical
+    # - Use weighted average: 40% ML, 60% range for more proportional response
+    if ml_score > 0.7 and range_score < 0.4:
+        # ML says critical but range says mild/moderate - trust range more
+        anomaly_score = range_score * 0.7 + ml_score * 0.3
+    elif ml_score < 0.2 and range_score > 0.3:
+        # ML says healthy but range says fault - trust range
+        anomaly_score = range_score
+    else:
+        # Normal blending
+        anomaly_score = range_score * 0.6 + ml_score * 0.4
     
     anomaly_score = min(0.98, max(0.0, anomaly_score))  # Clamp to [0, 0.98]
     
