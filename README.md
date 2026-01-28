@@ -90,16 +90,62 @@ docker-compose up -d
 
 ### Option 2: Local Development
 
+#### Step 1: Install & Configure InfluxDB
+
 ```bash
-# Backend Setup
+# Download InfluxDB 2.x from https://portal.influxdata.com/downloads/
+# Or use Docker for just the database:
+docker run -d --name influxdb \
+  -p 8086:8086 \
+  -v influxdb-data:/var/lib/influxdb2 \
+  influxdb:2.7
+
+# Access InfluxDB UI at http://localhost:8086
+# Complete initial setup with these values:
+#   Username: admin
+#   Password: adminpassword123
+#   Organization: predictive-maintenance
+#   Bucket: sensor_data
+
+# After setup, create an API token:
+# 1. Go to Data → API Tokens → Generate API Token → All Access
+# 2. Copy the token for the next step
+```
+
+#### Step 2: Environment Configuration
+
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env with your InfluxDB token (if different from default)
+# Default values work for development:
+#   INFLUXDB_HOST=localhost
+#   INFLUXDB_PORT=8086
+#   INFLUXDB_ORG=predictive-maintenance
+#   INFLUXDB_BUCKET=sensor_data
+#   INFLUXDB_TOKEN=predictive-maintenance-dev-token
+```
+
+#### Step 3: Backend Setup
+
+```bash
 python -m venv venv
 .\venv\Scripts\activate      # Windows
 source venv/bin/activate     # Linux/Mac
 
 pip install -r requirements.txt
-uvicorn backend.api.main:app --reload
 
-# Frontend Setup (separate terminal)
+# Verify InfluxDB connection
+python -c "from backend.storage.client import InfluxDBClient; print('✅ Connected')"
+
+# Start the backend
+uvicorn backend.api.main:app --reload
+```
+
+#### Step 4: Frontend Setup (separate terminal)
+
+```bash
 cd frontend
 npm install
 npm run dev
