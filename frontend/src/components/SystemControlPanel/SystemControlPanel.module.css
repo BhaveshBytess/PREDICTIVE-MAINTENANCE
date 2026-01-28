@@ -117,9 +117,11 @@
 .faultControl {
     display: flex;
     gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
-.faultSelect {
+.faultSelect,
+.severitySelect {
     padding: 0.6rem 0.75rem;
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.1);
@@ -127,9 +129,15 @@
     color: white;
     font-size: 0.85rem;
     cursor: pointer;
+    min-width: 100px;
 }
 
-.faultSelect:disabled {
+.severitySelect {
+    min-width: 180px;
+}
+
+.faultSelect:disabled,
+.severitySelect:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }

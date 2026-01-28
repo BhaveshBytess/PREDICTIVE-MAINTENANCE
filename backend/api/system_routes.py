@@ -47,6 +47,13 @@ class FaultType(str, Enum):
     DEFAULT = "DEFAULT"   # Current random fault behavior
 
 
+class FaultSeverity(str, Enum):
+    """Severity levels for fault injection."""
+    MILD = "MILD"         # Targets MODERATE risk (health 50-74)
+    MEDIUM = "MEDIUM"     # Targets HIGH risk (health 25-49)
+    SEVERE = "SEVERE"     # Targets CRITICAL risk (health 0-24)
+
+
 class SystemStateManager:
     """Thread-safe singleton for managing system state and validation metrics."""
     
@@ -55,6 +62,7 @@ class SystemStateManager:
         self._message = "System ready. Click 'Calibrate' to begin."
         self._started_at: Optional[datetime] = None
         self._fault_type: Optional[FaultType] = None
+        self._fault_severity: Optional[FaultSeverity] = None
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._active_thread: Optional[threading.Thread] = None
@@ -87,6 +95,11 @@ class SystemStateManager:
             return self._fault_type
     
     @property
+    def fault_severity(self) -> Optional[FaultSeverity]:
+        with self._lock:
+            return self._fault_severity
+    
+    @property
     def training_samples(self) -> int:
         with self._lock:
             return self._training_samples
@@ -107,12 +120,19 @@ class SystemStateManager:
                 return 100.0
             return round((self._faulty_correct / self._faulty_total) * 100, 1)
     
-    def set_state(self, state: SystemState, message: str, fault_type: Optional[FaultType] = None):
+    def set_state(
+        self, 
+        state: SystemState, 
+        message: str, 
+        fault_type: Optional[FaultType] = None,
+        fault_severity: Optional[FaultSeverity] = None
+    ):
         with self._lock:
             self._state = state
             self._message = message
             self._started_at = datetime.now(timezone.utc)
             self._fault_type = fault_type
+            self._fault_severity = fault_severity
     
     def set_training_samples(self, count: int):
         with self._lock:
@@ -169,6 +189,7 @@ class StateResponse(BaseModel):
     message: str
     started_at: Optional[datetime] = None
     fault_type: Optional[str] = None
+    fault_severity: Optional[str] = None
     # Validation Metrics
     training_samples: int = 0
     healthy_stability: float = 100.0
@@ -186,29 +207,81 @@ class ActionResponse(BaseModel):
 # BACKGROUND TASK FUNCTIONS
 # =============================================================================
 
-def generate_sensor_reading(asset_id: str, is_faulty: bool = False, fault_type: FaultType = FaultType.DEFAULT):
-    """Generate a single sensor reading (inline, no subprocess)."""
+def generate_sensor_reading(
+    asset_id: str, 
+    is_faulty: bool = False, 
+    fault_type: FaultType = FaultType.DEFAULT,
+    severity: FaultSeverity = FaultSeverity.SEVERE
+):
+    """
+    Generate a single sensor reading (inline, no subprocess).
+    
+    Healthy baseline (for reference):
+    - Voltage: 230V ± 2V → Range ~226-234V
+    - Current: 15A ± 1A → Range ~13-17A
+    - Power Factor: 0.92 ± 0.02 → Range ~0.88-0.96
+    - Vibration: 0.15g ± 0.03g → Range ~0.09-0.21g
+    
+    Severity levels target different risk levels:
+    - MILD: Just outside baseline → MODERATE risk (health 50-74)
+    - MEDIUM: Moderately outside → HIGH risk (health 25-49)  
+    - SEVERE: Far outside → CRITICAL risk (health 0-24)
+    """
     import random
     
     if is_faulty:
+        # Severity multipliers for how far outside baseline
+        # MILD = just crossing the boundary, SEVERE = way beyond
+        severity_config = {
+            FaultSeverity.MILD: {
+                'voltage_offset': (5, 10),      # 235-240V (just above 234V max)
+                'current_offset': (1, 3),       # 16-18A (just above 17A max)
+                'pf_drop': (0.05, 0.08),        # 0.84-0.87 (just below 0.88 min)
+                'vibration_mult': (1.3, 1.8),   # 0.20-0.27g (just above 0.21g max)
+            },
+            FaultSeverity.MEDIUM: {
+                'voltage_offset': (10, 25),     # 240-255V
+                'current_offset': (3, 7),       # 18-22A
+                'pf_drop': (0.08, 0.15),        # 0.77-0.84
+                'vibration_mult': (2.0, 4.0),   # 0.30-0.60g
+            },
+            FaultSeverity.SEVERE: {
+                'voltage_offset': (25, 50),     # 255-280V
+                'current_offset': (7, 15),      # 22-30A
+                'pf_drop': (0.15, 0.30),        # 0.62-0.77
+                'vibration_mult': (5.0, 15.0),  # 0.75-2.25g
+            }
+        }
+        
+        config = severity_config[severity]
+        
         if fault_type == FaultType.SPIKE:
-            # Extreme sudden spike
-            voltage = random.uniform(270, 300)
-            current = random.uniform(22, 30)
-            power_factor = random.uniform(0.55, 0.70)
-            vibration = random.uniform(1.5, 3.0)
+            # Sudden spike - use upper end of severity range
+            v_off = random.uniform(*config['voltage_offset']) * 1.2
+            c_off = random.uniform(*config['current_offset']) * 1.2
+            pf_drop = random.uniform(*config['pf_drop']) * 1.2
+            vib_mult = random.uniform(*config['vibration_mult']) * 1.3
         elif fault_type == FaultType.DRIFT:
-            # Gradual degradation (moderate values)
-            voltage = random.uniform(238, 250)
-            current = random.uniform(17, 20)
-            power_factor = random.uniform(0.78, 0.85)
-            vibration = random.uniform(0.25, 0.45)
-        else:  # DEFAULT
-            # Random fault behavior
-            voltage = random.uniform(245, 280)
-            current = random.uniform(18, 25)
-            power_factor = random.uniform(0.60, 0.80)
-            vibration = random.uniform(0.5, 2.5)
+            # Gradual drift - use lower end of severity range
+            v_off = random.uniform(config['voltage_offset'][0], 
+                                   (config['voltage_offset'][0] + config['voltage_offset'][1]) / 2)
+            c_off = random.uniform(config['current_offset'][0],
+                                   (config['current_offset'][0] + config['current_offset'][1]) / 2)
+            pf_drop = random.uniform(config['pf_drop'][0],
+                                     (config['pf_drop'][0] + config['pf_drop'][1]) / 2)
+            vib_mult = random.uniform(config['vibration_mult'][0],
+                                      (config['vibration_mult'][0] + config['vibration_mult'][1]) / 2)
+        else:  # DEFAULT - random within severity range
+            v_off = random.uniform(*config['voltage_offset'])
+            c_off = random.uniform(*config['current_offset'])
+            pf_drop = random.uniform(*config['pf_drop'])
+            vib_mult = random.uniform(*config['vibration_mult'])
+        
+        # Apply to healthy baseline values
+        voltage = 230 + v_off + random.gauss(0, 1)
+        current = 15 + c_off + random.gauss(0, 0.5)
+        power_factor = 0.92 - pf_drop + random.gauss(0, 0.01)
+        vibration = 0.15 * vib_mult + random.gauss(0, 0.02)
     else:
         # Healthy readings
         voltage = random.gauss(230, 2)
@@ -354,14 +427,19 @@ def run_calibration(asset_id: str):
         _state_manager.set_state(SystemState.IDLE, f"Calibration failed: {str(e)}")
 
 
-def run_fault_injection(asset_id: str, fault_type: FaultType):
+def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSeverity):
     """Background task: Generate faulty sensor data with metrics tracking."""
     try:
         while not _state_manager.should_stop():
             if _state_manager.state != SystemState.FAULT_INJECTION:
                 break
             
-            reading = generate_sensor_reading(asset_id, is_faulty=True, fault_type=fault_type)
+            reading = generate_sensor_reading(
+                asset_id, 
+                is_faulty=True, 
+                fault_type=fault_type,
+                severity=severity
+            )
             reading["timestamp"] = datetime.now(timezone.utc).isoformat()
             
             # Auto-detect against baseline using same tolerance as scoring (50%)
@@ -412,6 +490,7 @@ async def get_system_state():
         message=_state_manager.message,
         started_at=_state_manager.started_at,
         fault_type=_state_manager.fault_type.value if _state_manager.fault_type else None,
+        fault_severity=_state_manager.fault_severity.value if _state_manager.fault_severity else None,
         training_samples=_state_manager.training_samples,
         healthy_stability=_state_manager.healthy_stability,
         fault_capture_rate=_state_manager.fault_capture_rate
@@ -454,12 +533,19 @@ async def calibrate_system(
 @router.post("/inject-fault", response_model=ActionResponse)
 async def inject_fault(
     asset_id: str = Query(default="Motor-01", description="Asset to inject fault"),
-    fault_type: FaultType = Query(default=FaultType.DEFAULT, description="Type of fault to inject")
+    fault_type: FaultType = Query(default=FaultType.DEFAULT, description="Type of fault to inject"),
+    severity: FaultSeverity = Query(default=FaultSeverity.SEVERE, description="Severity of fault (MILD=MODERATE risk, MEDIUM=HIGH risk, SEVERE=CRITICAL risk)")
 ):
     """
     Start fault injection (background task).
     
     Injects faulty sensor data to trigger anomaly detection.
+    
+    Severity levels:
+    - MILD: Targets MODERATE risk (health 50-74)
+    - MEDIUM: Targets HIGH risk (health 25-49)
+    - SEVERE: Targets CRITICAL risk (health 0-24)
+    
     State transitions: MONITORING_HEALTHY → FAULT_INJECTION
     """
     current_state = _state_manager.state
@@ -476,17 +562,22 @@ async def inject_fault(
     # Update state and start fault injection
     _state_manager.set_state(
         SystemState.FAULT_INJECTION,
-        f"Injecting {fault_type.value} fault...",
-        fault_type=fault_type
+        f"Injecting {severity.value} {fault_type.value} fault...",
+        fault_type=fault_type,
+        fault_severity=severity
     )
     
-    thread = threading.Thread(target=run_fault_injection, args=(asset_id, fault_type), daemon=True)
+    thread = threading.Thread(
+        target=run_fault_injection, 
+        args=(asset_id, fault_type, severity), 
+        daemon=True
+    )
     _state_manager.set_active_thread(thread)
     thread.start()
     
     return ActionResponse(
         status="started",
-        message=f"Fault injection started ({fault_type.value})",
+        message=f"Fault injection started ({severity.value} {fault_type.value})",
         state=SystemState.FAULT_INJECTION.value
     )
 

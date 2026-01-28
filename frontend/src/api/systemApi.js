@@ -38,11 +38,12 @@ export async function calibrateSystem(assetId = 'Motor-01') {
  * Start fault injection
  * @param {string} assetId - Asset to inject fault
  * @param {string} faultType - Type of fault (SPIKE, DRIFT, DEFAULT)
+ * @param {string} severity - Severity level (MILD, MEDIUM, SEVERE)
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
-export async function injectFault(assetId = 'Motor-01', faultType = 'DEFAULT') {
+export async function injectFault(assetId = 'Motor-01', faultType = 'DEFAULT', severity = 'SEVERE') {
     const response = await fetch(
-        `${API_BASE}/system/inject-fault?asset_id=${assetId}&fault_type=${faultType}`,
+        `${API_BASE}/system/inject-fault?asset_id=${assetId}&fault_type=${faultType}&severity=${severity}`,
         { method: 'POST' }
     );
     if (!response.ok) {

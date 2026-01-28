@@ -26,12 +26,20 @@ const FAULT_TYPES = [
     { value: 'DRIFT', label: 'Gradual Drift' }
 ]
 
+// Fault severities
+const FAULT_SEVERITIES = [
+    { value: 'MILD', label: '🟡 Mild (MODERATE risk)', color: '#f59e0b' },
+    { value: 'MEDIUM', label: '🟠 Medium (HIGH risk)', color: '#f97316' },
+    { value: 'SEVERE', label: '🔴 Severe (CRITICAL risk)', color: '#ef4444' }
+]
+
 export default function SystemControlPanel({ onMetricsUpdate }) {
     const [systemState, setSystemState] = useState(STATES.IDLE)
     const [message, setMessage] = useState('System ready. Click "Calibrate" to begin.')
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState(null)
     const [selectedFaultType, setSelectedFaultType] = useState('DEFAULT')
+    const [selectedSeverity, setSelectedSeverity] = useState('SEVERE')
     const [metrics, setMetrics] = useState({
         trainingSamples: 0,
         healthyStability: 100.0,
@@ -87,13 +95,13 @@ export default function SystemControlPanel({ onMetricsUpdate }) {
         setIsLoading(true)
         setError(null)
         try {
-            await injectFault('Motor-01', selectedFaultType)
+            await injectFault('Motor-01', selectedFaultType, selectedSeverity)
         } catch (err) {
             setError(err.message)
         } finally {
             setIsLoading(false)
         }
-    }, [selectedFaultType])
+    }, [selectedFaultType, selectedSeverity])
 
     const handleReset = useCallback(async () => {
         setIsLoading(true)
@@ -195,17 +203,31 @@ export default function SystemControlPanel({ onMetricsUpdate }) {
                     )}
                 </button>
 
-                {/* Fault Type Selector */}
+                {/* Fault Type & Severity Selectors */}
                 <div className={styles.faultControl}>
                     <select
                         className={styles.faultSelect}
                         value={selectedFaultType}
                         onChange={(e) => setSelectedFaultType(e.target.value)}
                         disabled={!canInjectFault}
+                        title="Fault pattern type"
                     >
                         {FAULT_TYPES.map(ft => (
                             <option key={ft.value} value={ft.value}>
                                 {ft.label}
+                            </option>
+                        ))}
+                    </select>
+                    <select
+                        className={styles.severitySelect}
+                        value={selectedSeverity}
+                        onChange={(e) => setSelectedSeverity(e.target.value)}
+                        disabled={!canInjectFault}
+                        title="Severity determines target risk level"
+                    >
+                        {FAULT_SEVERITIES.map(sev => (
+                            <option key={sev.value} value={sev.value}>
+                                {sev.label}
                             </option>
                         ))}
                     </select>
