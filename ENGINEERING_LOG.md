@@ -312,3 +312,34 @@
 * **Key Learning:** Full-stack features require end-to-end verification. Always trace from UI click to API response.
 
 ---
+
+## [Fault Simulation] - Severity Levels for Targeted Risk Testing
+
+* **Context:** Fault injection always produced CRITICAL risk (~2 health), preventing demo of MODERATE/HIGH levels.
+* **The Hurdle:** Fault generator values were ALL far outside baseline (vibration 10-25x normal). Isolation Forest saw any deviation as maximally anomalous.
+* **The Solution:** Added `FaultSeverity` enum with calibrated value ranges:
+  ```
+  MILD:   voltage +5-10V, vibration 1.3-1.8x → MODERATE risk
+  MEDIUM: voltage +10-25V, vibration 2-4x   → HIGH risk  
+  SEVERE: voltage +25-50V, vibration 5-15x  → CRITICAL risk
+  ```
+* **Key Learning:** Fault simulation must be proportional to scoring thresholds. Test all risk levels, not just extremes.
+
+---
+
+## [Scoring] - Blended ML + Range-Based Scoring
+
+* **Context:** ML detector (Isolation Forest) was too binary - either 0.0 or 1.0 with no middle ground.
+* **The Hurdle:** MILD faults triggered max ML anomaly scores because healthy baseline is very tight. ML treated any deviation as critical.
+* **The Solution:** Blended scoring approach:
+  ```python
+  # 60% range-based (proportional) + 40% ML (detection)
+  if ml_score > 0.7 and range_score < 0.4:
+      # ML says critical but range says mild - trust range more
+      anomaly_score = range_score * 0.7 + ml_score * 0.3
+  else:
+      anomaly_score = range_score * 0.6 + ml_score * 0.4
+  ```
+* **Key Learning:** Binary classifiers need post-processing for graduated severity. Blend multiple signals for proportional response.
+
+---

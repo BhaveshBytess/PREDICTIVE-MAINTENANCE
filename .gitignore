@@ -53,9 +53,13 @@ htmlcov/
 # AI/Agent Collaboration Artifacts (Portfolio Cleanup)
 agent.md
 STARTING_PROMPT.md
+CONTINUATION_PROMPT.md
 EXECUTION_PLAN.md
 CONTRACTS.md
 ENGINEERING_LOG.md
 DEMO_GUIDE.md
 .agent/
 .gemini/
+
+# Generated Reports (Demo Artifacts)
+*.pdf

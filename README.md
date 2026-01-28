@@ -30,6 +30,7 @@ An end-to-end **Predictive Maintenance** system that monitors industrial assets 
 | 📊 **Feature Engineering** | Rolling means, spike detection, efficiency scores, RMS calculations |
 | 🤖 **Anomaly Detection** | Isolation Forest model trained on healthy baseline data |
 | ❤️ **Health Assessment** | 0-100 health score with risk classification (LOW → CRITICAL) |
+| 🎚️ **Fault Simulation** | Configurable severity levels (MILD/MEDIUM/SEVERE) for targeted testing |
 | 💡 **Explainability** | Human-readable explanations: "Vibration 3.2σ above normal" |
 | 📈 **Dashboard** | React + Recharts real-time visualization with glassmorphism UI |
 | 📄 **Reporting** | 5-page Industrial Asset Health Certificate with audit trail, ROI analysis, and compliance |
@@ -298,6 +299,13 @@ else:                   risk = LOW
 **Anomaly Visualization Logic:**
 - Red dashed lines appear **only when risk ≠ LOW**
 - When system is healthy, no anomaly markers shown
+
+**Fault Injection Controls:**
+- 🎯 **Fault Type**: Random, Spike, or Gradual Drift patterns
+- 🎚️ **Severity Levels**:
+  - 🟡 **MILD** → Targets MODERATE risk (health 50-74)
+  - 🟠 **MEDIUM** → Targets HIGH risk (health 25-49)
+  - 🔴 **SEVERE** → Targets CRITICAL risk (health 0-24)
 - Historical faulty data is cleared from visualization when system recovers
 
 ---
@@ -400,8 +408,9 @@ Key architectural decisions are documented in [`ENGINEERING_LOG.md`](ENGINEERING
 - **Phase 7**: Deterministic health formula with named thresholds
 - **Phase 8**: Epsilon rule for practical significance
 - **Phase 9**: Pure renderer pattern (frontend displays, backend computes)
-- **Phase 10**: Snapshot rule for auditable reports
+- **Phase 10**: Snapshot rule for auditable reports; 5-page Industrial Certificate
 - **Phase 11**: Dual deployment (Docker + systemd)
+- **Scoring**: Blended ML + range-based scoring for graduated severity response
 
 ---
 
