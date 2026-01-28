@@ -22,6 +22,11 @@ from backend.ml.detector import AnomalyDetector
 from backend.rules.assessor import HealthAssessor, HealthReport, RiskLevel
 from backend.rules.explainer import ExplanationGenerator
 from backend.reports.generator import generate_pdf_report, generate_excel_report, generate_filename
+from backend.reports.industrial_report import (
+    IndustrialReportGenerator,
+    generate_industrial_report,
+    generate_industrial_filename
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["Integration"])
@@ -317,12 +322,17 @@ async def get_health_status(asset_id: str):
 )
 async def download_report(
     asset_id: str,
-    format: str = Query(default="pdf", description="Report format: pdf or xlsx")
+    format: str = Query(default="pdf", description="Report format: pdf, xlsx, or industrial")
 ):
     """
     Generate and download a health report.
     
     Uses the latest health assessment for the asset.
+    
+    Formats:
+    - pdf: Basic health certificate (1-page)
+    - xlsx: Excel spreadsheet format
+    - industrial: 5-page Industrial Asset Health Certificate (recommended)
     """
     # Get or generate health report
     if asset_id not in _latest_health:
@@ -337,10 +347,26 @@ async def download_report(
     
     report = _latest_health[asset_id]
     
+    # Get current sensor readings for the industrial report
+    current_readings = None
+    if asset_id in _sensor_history and len(_sensor_history[asset_id]) > 0:
+        latest = _sensor_history[asset_id][-1]
+        current_readings = {
+            'voltage_v': latest.get('voltage_v', 230.0),
+            'current_a': latest.get('current_a', 15.0),
+            'power_factor': latest.get('power_factor', 0.95),
+            'vibration_g': latest.get('vibration_g', 0.0),
+        }
+    
     if format.lower() == "xlsx":
         content = generate_excel_report(report)
         filename = generate_filename(asset_id, report.timestamp, "xlsx")
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif format.lower() == "industrial":
+        # 5-page Industrial Asset Health Certificate
+        content = generate_industrial_report(report, current_readings)
+        filename = generate_industrial_filename(asset_id, report.timestamp)
+        media_type = "application/pdf"
     else:
         content = generate_pdf_report(report)
         filename = generate_filename(asset_id, report.timestamp, "pdf")
