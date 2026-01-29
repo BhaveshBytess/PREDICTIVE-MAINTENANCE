@@ -1,36 +1,50 @@
 {
-  "rewrites": [
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/index.py": {
+      "runtime": "@vercel/python@3.12"
+    }
+  },
+  "routes": [
     {
-      "source": "/system/:path*",
-      "destination": "/api/index.py"
+      "src": "/system/(.*)",
+      "dest": "/api/index.py"
     },
     {
-      "source": "/api/:path*",
-      "destination": "/api/index.py"
+      "src": "/api/v1/(.*)",
+      "dest": "/api/index.py"
     },
     {
-      "source": "/sandbox/:path*",
-      "destination": "/api/index.py"
+      "src": "/sandbox/(.*)",
+      "dest": "/api/index.py"
     },
     {
-      "source": "/ingest",
-      "destination": "/api/index.py"
+      "src": "/ingest",
+      "dest": "/api/index.py"
     },
     {
-      "source": "/health",
-      "destination": "/api/index.py"
+      "src": "/health",
+      "dest": "/api/index.py"
     },
     {
-      "source": "/docs",
-      "destination": "/api/index.py"
+      "src": "/docs",
+      "dest": "/api/index.py"
     },
     {
-      "source": "/redoc",
-      "destination": "/api/index.py"
+      "src": "/redoc",
+      "dest": "/api/index.py"
     },
     {
-      "source": "/openapi.json",
-      "destination": "/api/index.py"
+      "src": "/openapi.json",
+      "dest": "/api/index.py"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
