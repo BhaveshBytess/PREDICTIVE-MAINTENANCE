@@ -2,78 +2,77 @@
 # Predictive Maintenance - Docker Compose
 # ============================================
 #
+# Local development and testing setup.
+# For production, deploy backend to Render/Railway and frontend to Vercel.
+#
 # Usage:
-#   docker-compose up -d       # Start all services
-#   docker-compose down        # Stop all services
-#   docker-compose logs -f     # View logs
+#   docker-compose up -d          # Start all services
+#   docker-compose up backend     # Start backend only
+#   docker-compose down           # Stop all services
+#   docker-compose logs -f        # View logs
 #
 # Environment variables read from .env file
 
 services:
-  # InfluxDB - Time Series Database
-  influxdb:
-    image: influxdb:2.7-alpine
-    container_name: pm_influxdb
-    restart: unless-stopped
-    ports:
-      - "${INFLUXDB_PORT:-8086}:8086"
-    environment:
-      - DOCKER_INFLUXDB_INIT_MODE=setup
-      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_USERNAME:-admin}
-      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD:-adminpassword}
-      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG:-predictive_maintenance}
-      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET:-sensor_data}
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:-my-super-secret-token}
-    volumes:
-      - influxdb_data:/var/lib/influxdb2
-      - influxdb_config:/etc/influxdb2
-    healthcheck:
-      test: [ "CMD", "influx", "ping" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
+  # ============================================
   # Backend - FastAPI Application
+  # ============================================
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     container_name: pm_backend
     restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      - INFLUXDB_URL=http://influxdb:8086
-      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-my-super-secret-token}
-      - INFLUXDB_ORG=${INFLUXDB_ORG:-predictive_maintenance}
-      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-sensor_data}
-    depends_on:
-      influxdb:
-        condition: service_healthy
+      - ENVIRONMENT=local
+      - INFLUX_URL=${INFLUX_URL:-http://influxdb:8086}
+      - INFLUX_TOKEN=${INFLUX_TOKEN:-}
+      - INFLUX_ORG=${INFLUX_ORG:-}
+      - INFLUX_BUCKET=${INFLUX_BUCKET:-sensor_data}
     healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
-  # Frontend - React/Vite Application (served via nginx)
+  # ============================================
+  # Frontend - React/Vite Application
+  # ============================================
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:8000
     container_name: pm_frontend
     restart: unless-stopped
     ports:
-      - "3000:80"
-    environment:
-      # IMPORTANT: Frontend runs in BROWSER, not container
-      # This URL must be accessible from the host machine
-      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+      - "5173:80"
     depends_on:
       - backend
 
-volumes:
-  influxdb_data:
-  influxdb_config:
+  # ============================================
+  # InfluxDB - Time Series Database (Optional)
+  # ============================================
+  # Uncomment to run local InfluxDB for full persistence
+  # influxdb:
+  #   image: influxdb:2.7-alpine
+  #   container_name: pm_influxdb
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8086:8086"
+  #   environment:
+  #     - DOCKER_INFLUXDB_INIT_MODE=setup
+  #     - DOCKER_INFLUXDB_INIT_USERNAME=admin
+  #     - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword
+  #     - DOCKER_INFLUXDB_INIT_ORG=predictive_maintenance
+  #     - DOCKER_INFLUXDB_INIT_BUCKET=sensor_data
+  #     - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-token
+  #   volumes:
+  #     - influxdb_data:/var/lib/influxdb2
+
+# volumes:
+#   influxdb_data:
