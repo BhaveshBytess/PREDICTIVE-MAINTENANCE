@@ -232,7 +232,9 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
 | | scikit-learn | 1.3+ | Isolation Forest ML |
 | | ReportLab | 4.x | PDF generation |
 | **Storage** | InfluxDB | 2.7+ | Time-series persistence |
-| **Deployment** | Docker Compose | 2.x | Container orchestration |
+| **Deployment** | Docker Compose | 2.x | Self-hosted orchestration |
+| | Vercel | - | Cloud serverless deployment |
+| | Systemd | - | Bare-metal Linux service |
 
 ### System Architecture (ASCII Diagram)
 
@@ -351,8 +353,11 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
 ### Start the System
 
 ```bash
-# Docker (Recommended)
+# Docker (Self-Hosted)
 docker-compose up -d
+
+# Vercel (Cloud)
+vercel
 
 # Local Development
 uvicorn backend.api.main:app --reload  # Terminal 1
