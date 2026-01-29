@@ -1,6 +1,5 @@
 # Vercel Python Serverless Dependencies
 # This file is used by Vercel to install packages for the /api functions
-# Note: influxdb-client is NOT included - demo runs without it
 
 fastapi==0.115.6
 pydantic==2.10.5
@@ -9,4 +8,7 @@ pandas==2.2.3
 scikit-learn==1.6.1
 reportlab==4.2.5
 openpyxl==3.1.5
-joblib
+joblib==1.4.2
+
+# InfluxDB Cloud Integration
+influxdb-client==1.48.0
