@@ -135,7 +135,7 @@ python -m venv venv
 .\venv\Scripts\activate      # Windows
 source venv/bin/activate     # Linux/Mac
 
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 
 # Verify InfluxDB connection
 python -c "from backend.storage.client import InfluxDBClient; print('✅ Connected')"

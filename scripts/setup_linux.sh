@@ -59,7 +59,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ -d "$SCRIPT_DIR/backend" ]; then
     cp -r "$SCRIPT_DIR/backend" "$APP_DIR/"
     cp -r "$SCRIPT_DIR/tests" "$APP_DIR/" 2>/dev/null || true
-    cp "$SCRIPT_DIR/requirements.txt" "$APP_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/backend/requirements.txt" "$APP_DIR/" 2>/dev/null || true
     chown -R "$ACTUAL_USER:$ACTUAL_USER" "$APP_DIR"
     echo -e "${GREEN}✓ Application files copied${NC}"
 else
