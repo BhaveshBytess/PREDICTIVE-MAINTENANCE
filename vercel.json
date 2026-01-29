@@ -1,8 +1,18 @@
 {
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/backend/api/main.py"
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "echo 'Skipping root install'",
+  "framework": "vite",
+  "functions": {
+    "backend/api/main.py": {
+      "runtime": "@vercel/python@4.3.1",
+      "maxDuration": 30
     }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/backend/api/main.py" },
+    { "source": "/docs", "destination": "/backend/api/main.py" },
+    { "source": "/redoc", "destination": "/backend/api/main.py" },
+    { "source": "/openapi.json", "destination": "/backend/api/main.py" }
   ]
 }
