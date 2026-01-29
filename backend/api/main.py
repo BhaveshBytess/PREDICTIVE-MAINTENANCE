@@ -26,7 +26,7 @@ app = FastAPI(
 
 
 # CORS Configuration — Production + Development origins
-# Note: In Vercel deployment, frontend and backend are on same origin (no CORS needed)
+# Note: In Vercel deployment, frontend and backend are on same origin (no CORS needed for same-origin requests)
 # These origins support local development and cross-origin scenarios
 ALLOWED_ORIGINS = [
     "http://localhost:3000",      # React dev server (primary)
@@ -37,13 +37,13 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:3001",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8080",
-    "https://predictive-maintenance.vercel.app",  # Vercel production
-    "https://*.vercel.app",       # Vercel preview deployments
 ]
 
+# For Vercel deployments, we use allow_origin_regex to match all vercel.app subdomains
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Match all Vercel preview deployments
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Authorization"],

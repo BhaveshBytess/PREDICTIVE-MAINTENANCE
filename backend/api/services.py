@@ -2,12 +2,21 @@
 API Services — Business Logic Layer
 
 Handles derived signal computation and storage orchestration.
+Note: InfluxDB storage is optional in serverless deployments.
 """
 
 from datetime import datetime
 from typing import Dict, Any
 
-from backend.storage import SensorEventWriter, InfluxDBClientError
+# Graceful import - InfluxDB may not be available in serverless environments
+try:
+    from backend.storage import SensorEventWriter, InfluxDBClientError
+    INFLUXDB_AVAILABLE = True
+except ImportError:
+    INFLUXDB_AVAILABLE = False
+    SensorEventWriter = None
+    class InfluxDBClientError(Exception):
+        pass
 
 
 def compute_power_kw(voltage_v: float, current_a: float, power_factor: float) -> float:

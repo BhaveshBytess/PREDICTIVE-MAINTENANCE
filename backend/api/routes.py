@@ -2,11 +2,21 @@
 API Routes — Endpoint Definitions
 
 All handlers are async per user mandate.
+
+Note: InfluxDB routes are optional and will return 503 if InfluxDB is not available.
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends
 
-from backend.storage import SensorEventWriter, InfluxDBClientError
+# Graceful import - InfluxDB may not be available in serverless environments
+try:
+    from backend.storage import SensorEventWriter, InfluxDBClientError
+    INFLUXDB_AVAILABLE = True
+except ImportError:
+    INFLUXDB_AVAILABLE = False
+    SensorEventWriter = None
+    class InfluxDBClientError(Exception):
+        pass
 
 from .schemas import (
     SensorEventRequest,
@@ -14,19 +24,29 @@ from .schemas import (
     SignalsOutput,
     HealthResponse,
 )
-from .services import ingest_event, check_database_health
+
+# Only import services if InfluxDB is available
+if INFLUXDB_AVAILABLE:
+    from .services import ingest_event, check_database_health
 
 
 router = APIRouter()
 
 
 # Dependency for database client
-def get_db_client() -> SensorEventWriter:
+def get_db_client():
     """
     Dependency that provides a connected InfluxDB client.
     
     In production, this would use connection pooling.
+    Returns None if InfluxDB is not available.
     """
+    if not INFLUXDB_AVAILABLE:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="InfluxDB is not available in this deployment. Use /system/* endpoints for demo."
+        )
+    
     client = SensorEventWriter()
     try:
         client.connect()
@@ -118,7 +138,15 @@ async def health_check() -> HealthResponse:
     Health check endpoint.
     
     Pings InfluxDB and returns 503 if unreachable.
+    Returns degraded status if InfluxDB client is not available.
     """
+    if not INFLUXDB_AVAILABLE:
+        return HealthResponse(
+            status="degraded",
+            database="unavailable",
+            message="Running in serverless mode without InfluxDB. Demo features available via /system/* endpoints."
+        )
+    
     client = SensorEventWriter()
     
     try:
