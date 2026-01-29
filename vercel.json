@@ -1,12 +1,8 @@
 {
-  "buildCommand": "cd frontend && npm install && npm run build",
-  "outputDirectory": "frontend/dist",
-  "installCommand": "pip install -r backend/requirements.txt",
-  "framework": "vite",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/docs", "destination": "/api" },
-    { "source": "/redoc", "destination": "/api" },
-    { "source": "/openapi.json", "destination": "/api" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/backend/api/main.py"
+    }
   ]
 }
