@@ -7,6 +7,7 @@ Provides the "glue" endpoints that connect all modules:
 - GET /api/v1/report/{asset_id} — Download PDF report
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 import json
@@ -27,6 +28,10 @@ from backend.reports.industrial_report import (
     generate_industrial_report,
     generate_industrial_filename
 )
+from backend.database import db
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api/v1", tags=["Integration"])
@@ -462,8 +467,9 @@ async def simple_ingest(request: SimpleIngestRequest):
     detected_faulty = is_anomaly if request.asset_id in _baselines else request.is_faulty
     
     # Store reading
+    timestamp = datetime.now(timezone.utc)
     reading = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": timestamp.isoformat(),
         "voltage_v": request.voltage_v,
         "current_a": request.current_a,
         "power_factor": request.power_factor,
@@ -472,6 +478,23 @@ async def simple_ingest(request: SimpleIngestRequest):
     }
     
     _sensor_history[request.asset_id].append(reading)
+    
+    # Persist to InfluxDB (with fallback to mock mode)
+    db.write_point(
+        measurement="sensor_events",
+        tags={
+            "asset_id": request.asset_id,
+            "asset_type": "motor",
+            "is_faulty": str(detected_faulty).lower()
+        },
+        fields={
+            "voltage_v": request.voltage_v,
+            "current_a": request.current_a,
+            "power_factor": request.power_factor,
+            "vibration_g": request.vibration_g,
+        },
+        timestamp=timestamp
+    )
     
     # Keep only last 1000 readings per asset
     if len(_sensor_history[request.asset_id]) > 1000:

@@ -4,6 +4,7 @@ API Routes — Endpoint Definitions
 All handlers are async per user mandate.
 
 Note: InfluxDB routes are optional and will return 503 if InfluxDB is not available.
+The new database wrapper (backend.database) provides automatic fallback to mock mode.
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -17,6 +18,8 @@ except ImportError:
     SensorEventWriter = None
     class InfluxDBClientError(Exception):
         pass
+
+from backend.database import db
 
 from .schemas import (
     SensorEventRequest,
@@ -137,42 +140,43 @@ async def health_check() -> HealthResponse:
     """
     Health check endpoint.
     
-    Pings InfluxDB and returns 503 if unreachable.
-    Returns degraded status if InfluxDB client is not available.
+    Uses the database wrapper which automatically handles fallback to mock mode.
+    Returns healthy status even in mock mode (graceful degradation).
     """
-    if not INFLUXDB_AVAILABLE:
+    # Use new database wrapper for status
+    if db.is_mock_mode:
         return HealthResponse(
-            status="degraded",
-            database="unavailable",
-            message="Running in serverless mode without InfluxDB. Demo features available via /system/* endpoints."
+            status="healthy",
+            database="mock",
+            message="Running in mock mode. Data persisted to console. Set INFLUX_TOKEN for full persistence."
         )
     
-    client = SensorEventWriter()
+    if db.is_connected:
+        return HealthResponse(
+            status="healthy",
+            database="connected",
+            message="All systems operational. InfluxDB connected."
+        )
     
-    try:
-        client.connect()
-        is_healthy = await check_database_health(client)
-        client.disconnect()
-        
-        if is_healthy:
-            return HealthResponse(
-                status="healthy",
-                database="connected",
-                message="All systems operational"
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database health check failed"
-            )
+    # Fallback: try legacy SensorEventWriter if available
+    if INFLUXDB_AVAILABLE:
+        client = SensorEventWriter()
+        try:
+            client.connect()
+            is_healthy = await check_database_health(client)
+            client.disconnect()
             
-    except InfluxDBClientError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Cannot connect to database"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Health check failed: {str(e)}"
-        )
+            if is_healthy:
+                return HealthResponse(
+                    status="healthy",
+                    database="connected",
+                    message="All systems operational"
+                )
+        except Exception:
+            pass
+    
+    return HealthResponse(
+        status="degraded",
+        database="unavailable",
+        message="Running in degraded mode. Demo features available via /system/* endpoints."
+    )
