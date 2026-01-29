@@ -33,7 +33,7 @@
 | **Status** | 🟢 **RELEASE CANDIDATE** |
 | **Classification** | Internal / Portfolio |
 | **Last Updated** | 2026-01-29 |
-| **Author** | Systems Architecture Team |
+| **Author** | Bhavesh |
 | **Review Cycle** | Quarterly |
 
 ---
