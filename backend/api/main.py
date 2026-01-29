@@ -25,8 +25,9 @@ app = FastAPI(
 )
 
 
-# CORS Configuration — Restricted to localhost only
-# Per user mandate: Do NOT use allow_origins=["*"]
+# CORS Configuration — Production + Development origins
+# Note: In Vercel deployment, frontend and backend are on same origin (no CORS needed)
+# These origins support local development and cross-origin scenarios
 ALLOWED_ORIGINS = [
     "http://localhost:3000",      # React dev server (primary)
     "http://localhost:3001",      # React dev server (alternate)
@@ -36,6 +37,8 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:3001",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8080",
+    "https://predictive-maintenance.vercel.app",  # Vercel production
+    "https://*.vercel.app",       # Vercel preview deployments
 ]
 
 app.add_middleware(
