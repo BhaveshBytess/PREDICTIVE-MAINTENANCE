@@ -3,46 +3,55 @@ FastAPI Application — Ingestion & Validation API
 
 Phase 3: Gates all sensor data through strict contracts.
 
-CORS: Restricted to localhost origins only (no wildcard).
+CORS: Configured via environment variables.
 """
+
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.config import settings
 from .routes import router
 from .integration_routes import router as integration_router
 from .system_routes import router as system_router
 from .sandbox_routes import router as sandbox_router
 
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan events."""
+    # Startup
+    logger.info(f"🚀 Starting {settings.PROJECT_NAME}")
+    logger.info(f"📍 Running in {settings.ENVIRONMENT} mode")
+    logger.info(f"🔗 InfluxDB: {settings.INFLUX_URL}")
+    yield
+    # Shutdown
+    logger.info(f"👋 Shutting down {settings.PROJECT_NAME}")
+
+
 # Application metadata
 app = FastAPI(
-    title="Predictive Maintenance API",
+    title=settings.PROJECT_NAME,
     description="Sensor data ingestion and validation API",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 
-# CORS Configuration — Production + Development origins
-# Note: In Vercel deployment, frontend and backend are on same origin (no CORS needed for same-origin requests)
-# These origins support local development and cross-origin scenarios
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",      # React dev server (primary)
-    "http://localhost:3001",      # React dev server (alternate)
-    "http://localhost:5173",      # Vite dev server
-    "http://localhost:8080",      # Alternative frontend port
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:8080",
-]
-
+# CORS Configuration — loaded from settings
 # For Vercel deployments, we use allow_origin_regex to match all vercel.app subdomains
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=settings.CORS_ORIGINS,
     allow_origin_regex=r"https://.*\.vercel\.app",  # Match all Vercel preview deployments
     allow_credentials=True,
     allow_methods=["GET", "POST"],

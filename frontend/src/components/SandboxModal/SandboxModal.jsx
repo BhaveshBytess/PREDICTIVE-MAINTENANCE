@@ -10,9 +10,10 @@
 
 import { useState, useEffect } from 'react'
 import styles from './SandboxModal.module.css'
+import { API_URL } from '../../config'
 
-// API base URL - empty string in production uses relative paths
-const API_BASE = import.meta.env.PROD ? '' : 'http://localhost:8000'
+// API base URL from centralized config
+const API_BASE = API_URL
 
 // Preset scenarios (must match backend)
 const PRESETS = [

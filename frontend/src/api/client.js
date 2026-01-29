@@ -5,8 +5,10 @@
  * All data comes from the backend.
  */
 
-// API base URL - empty string in production uses relative paths
-const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
+import { API_URL } from '../config'
+
+// API base URL from centralized config
+const API_BASE = API_URL
 
 /**
  * Fetch current health status for an asset
