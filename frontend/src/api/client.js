@@ -5,8 +5,8 @@
  * All data comes from the backend.
  */
 
-// API base URL - can be overridden via environment
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// API base URL - empty string in production uses relative paths
+const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
 
 /**
  * Fetch current health status for an asset

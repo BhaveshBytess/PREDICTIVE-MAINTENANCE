@@ -4,7 +4,8 @@
  * Provides functions for system lifecycle control endpoints.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// API base URL - empty string in production uses relative paths
+const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000');
 
 /**
  * Get current system state
