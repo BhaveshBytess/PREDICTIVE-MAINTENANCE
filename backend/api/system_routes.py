@@ -22,6 +22,7 @@ from backend.api.integration_routes import (
     _sensor_history, _baselines, _detectors,
     BaselineBuilder, AnomalyDetector
 )
+from backend.database import db
 import pandas as pd
 
 
@@ -337,6 +338,25 @@ def run_calibration(asset_id: str):
             reading["is_faulty"] = False
             burst_data.append(reading)
             
+            # Persist to InfluxDB (every 10th sample to avoid overwhelming)
+            if i % 10 == 0:
+                db.write_point(
+                    measurement="sensor_events",
+                    tags={
+                        "asset_id": asset_id,
+                        "asset_type": "motor",
+                        "is_faulty": "false",
+                        "source": "calibration"
+                    },
+                    fields={
+                        "voltage_v": reading["voltage_v"],
+                        "current_a": reading["current_a"],
+                        "power_factor": reading["power_factor"],
+                        "vibration_g": reading["vibration_g"],
+                    },
+                    timestamp=fake_time
+                )
+            
             # Update progress every 100 samples
             if i % 100 == 0:
                 _state_manager.set_state(
@@ -413,6 +433,23 @@ def run_calibration(asset_id: str):
             reading["is_faulty"] = is_anomaly
             _sensor_history[asset_id].append(reading)
             
+            # Persist to InfluxDB
+            db.write_point(
+                measurement="sensor_events",
+                tags={
+                    "asset_id": asset_id,
+                    "asset_type": "motor",
+                    "is_faulty": str(is_anomaly).lower(),
+                    "source": "healthy_monitoring"
+                },
+                fields={
+                    "voltage_v": reading["voltage_v"],
+                    "current_a": reading["current_a"],
+                    "power_factor": reading["power_factor"],
+                    "vibration_g": reading["vibration_g"],
+                }
+            )
+            
             # TRACK HEALTHY STABILITY METRIC
             # Healthy data classified as LOW risk = correct
             _state_manager.record_healthy_classification(is_low_risk=(not is_anomaly))
@@ -463,6 +500,25 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
             
             reading["is_faulty"] = is_anomaly
             _sensor_history[asset_id].append(reading)
+            
+            # Persist to InfluxDB
+            db.write_point(
+                measurement="sensor_events",
+                tags={
+                    "asset_id": asset_id,
+                    "asset_type": "motor",
+                    "is_faulty": str(is_anomaly).lower(),
+                    "source": "fault_injection",
+                    "fault_type": fault_type.value,
+                    "severity": severity.value
+                },
+                fields={
+                    "voltage_v": reading["voltage_v"],
+                    "current_a": reading["current_a"],
+                    "power_factor": reading["power_factor"],
+                    "vibration_g": reading["vibration_g"],
+                }
+            )
             
             # TRACK FAULT CAPTURE RATE METRIC
             # Faulty data classified as HIGH+ risk (detected as anomaly) = correct

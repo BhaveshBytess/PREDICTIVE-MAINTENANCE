@@ -26,7 +26,10 @@ from influxdb_client.client.exceptions import InfluxDBError
 from backend.config import settings
 
 
+# Configure logging to show INFO level for this module
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class InfluxWrapper:
@@ -38,6 +41,7 @@ class InfluxWrapper:
     - Automatic fallback to mock mode if connection fails
     - Graceful degradation when InfluxDB is unavailable
     - Thread-safe initialization
+    - LOUD LOGGING for debugging
     
     Mock Mode:
     - Activated when INFLUX_TOKEN is empty or connection fails
@@ -64,9 +68,14 @@ class InfluxWrapper:
             return
             
         self._client: Optional[InfluxDBClient] = None
+        self._write_api = None
         self._mock_mode: bool = False
         self._mock_buffer: List[Dict[str, Any]] = []  # Store mock writes for testing
         self._initialized = True
+        
+        # Store config for use in writes
+        self._org = settings.INFLUX_ORG
+        self._bucket = settings.INFLUX_BUCKET
         
         self._connect()
     
@@ -77,10 +86,19 @@ class InfluxWrapper:
         Falls back to mock mode if:
         - INFLUX_TOKEN is empty
         - Connection fails
-        - Ping fails
+        
+        NOTE: We do NOT check ping() because InfluxDB Cloud health endpoint
+        often returns 'fail' even when the service is working.
         """
+        print(f"[DB] Initializing InfluxDB connection...")
+        print(f"[DB] URL: {settings.INFLUX_URL}")
+        print(f"[DB] ORG: {settings.INFLUX_ORG}")
+        print(f"[DB] BUCKET: {settings.INFLUX_BUCKET}")
+        print(f"[DB] TOKEN: {'*' * 10}...{settings.INFLUX_TOKEN[-10:] if settings.INFLUX_TOKEN else 'EMPTY'}")
+        
         # Check if credentials are configured
         if not settings.INFLUX_TOKEN:
+            print("[DB] ⚠️  INFLUX_TOKEN not configured — running in MOCK MODE")
             logger.warning(
                 "⚠️  INFLUX_TOKEN not configured — running in MOCK MODE\n"
                 "   Data will be logged to console instead of InfluxDB.\n"
@@ -90,20 +108,25 @@ class InfluxWrapper:
             return
         
         try:
+            # Create client - same as debug script
             self._client = InfluxDBClient(
                 url=settings.INFLUX_URL,
                 token=settings.INFLUX_TOKEN,
                 org=settings.INFLUX_ORG,
             )
             
-            # Verify connection
-            if not self._client.ping():
-                raise ConnectionError("InfluxDB ping failed")
+            # Create write API once and reuse
+            self._write_api = self._client.write_api(write_options=SYNCHRONOUS)
             
+            # NOTE: We skip ping() check because InfluxDB Cloud returns 'fail' 
+            # even when working. The debug script proved writes work regardless.
+            
+            print(f"[DB] ✅ InfluxDB client initialized (Real Mode)")
             logger.info(f"✅ Connected to InfluxDB at {settings.INFLUX_URL}")
             self._mock_mode = False
             
         except Exception as e:
+            print(f"[DB] ❌ InfluxDB connection failed: {e}")
             logger.warning(
                 f"⚠️  InfluxDB connection failed: {e}\n"
                 "   Running in MOCK MODE — data will be logged to console."
@@ -144,15 +167,11 @@ class InfluxWrapper:
             
         Returns:
             True if write succeeded, False otherwise
-            
-        Example:
-            db.write_point(
-                "sensor_events",
-                {"asset_id": "Motor-01", "asset_type": "motor"},
-                {"voltage_v": 230.5, "current_a": 15.2}
-            )
         """
         timestamp = timestamp or datetime.now(timezone.utc)
+        
+        # LOUD LOGGING - always print to console
+        print(f"[DB] Writing to Influx: {measurement} | tags={tags} | fields={list(fields.keys())}")
         
         if self._mock_mode:
             # Mock mode: log to console and buffer
@@ -168,10 +187,7 @@ class InfluxWrapper:
             if len(self._mock_buffer) > 1000:
                 self._mock_buffer = self._mock_buffer[-1000:]
             
-            logger.debug(
-                f"[MOCK WRITE] {measurement} | "
-                f"tags={tags} | fields={fields}"
-            )
+            print(f"[DB] [MOCK] Data buffered (mock mode)")
             return True
         
         try:
@@ -191,17 +207,22 @@ class InfluxWrapper:
             
             point = point.time(timestamp, WritePrecision.NS)
             
-            # Write synchronously
-            write_api = self._client.write_api(write_options=SYNCHRONOUS)
-            write_api.write(bucket=settings.INFLUX_BUCKET, record=point)
+            # Write with EXPLICIT org and bucket - matching debug script
+            self._write_api.write(
+                bucket=self._bucket,
+                org=self._org,
+                record=point
+            )
             
-            logger.debug(f"[INFLUX WRITE] {measurement} | tags={tags}")
+            print(f"[DB] ✅ Write SUCCESS to bucket '{self._bucket}'")
             return True
             
         except InfluxDBError as e:
+            print(f"[DB] ❌ InfluxDB write FAILED: {e}")
             logger.error(f"InfluxDB write failed: {e}")
             return False
         except Exception as e:
+            print(f"[DB] ❌ Unexpected write error: {e}")
             logger.error(f"Unexpected write error: {e}")
             return False
     
@@ -214,21 +235,16 @@ class InfluxWrapper:
             
         Returns:
             List of record dictionaries
-            
-        Example:
-            results = db.query_data('''
-                from(bucket: "sensor_data")
-                |> range(start: -1h)
-                |> filter(fn: (r) => r["asset_id"] == "Motor-01")
-            ''')
         """
+        print(f"[DB] Executing query...")
+        
         if self._mock_mode:
-            logger.debug(f"[MOCK QUERY] Returning mock buffer ({len(self._mock_buffer)} points)")
+            print(f"[DB] [MOCK] Returning mock buffer ({len(self._mock_buffer)} points)")
             return self._mock_buffer.copy()
         
         try:
             query_api = self._client.query_api()
-            tables = query_api.query(query, org=settings.INFLUX_ORG)
+            tables = query_api.query(query, org=self._org)
             
             results = []
             for table in tables:
@@ -238,16 +254,18 @@ class InfluxWrapper:
                         "measurement": record.get_measurement(),
                         "field": record.get_field(),
                         "value": record.get_value(),
-                        **{k: v for k, v in record.values.items() if k.startswith("_") is False}
+                        **{k: v for k, v in record.values.items() if not k.startswith("_")}
                     })
             
-            logger.debug(f"[INFLUX QUERY] Returned {len(results)} records")
+            print(f"[DB] Query returned {len(results)} records")
             return results
             
         except InfluxDBError as e:
+            print(f"[DB] ❌ InfluxDB query FAILED: {e}")
             logger.error(f"InfluxDB query failed: {e}")
             return []
         except Exception as e:
+            print(f"[DB] ❌ Unexpected query error: {e}")
             logger.error(f"Unexpected query error: {e}")
             return []
     
@@ -267,7 +285,7 @@ class InfluxWrapper:
             except:
                 pass
             self._client = None
-        logger.info("InfluxDB connection closed")
+        print("[DB] InfluxDB connection closed")
     
     def reconnect(self) -> bool:
         """
@@ -278,8 +296,10 @@ class InfluxWrapper:
         Returns:
             True if reconnection succeeded
         """
+        print("[DB] Attempting reconnect...")
         self.close()
-        self._connect()
+        self._initialized = False
+        self.__init__()
         return self.is_connected
 
 

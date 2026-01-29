@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     
     # === Settings Configuration ===
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=("backend/.env", ".env"),  # Check both paths
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
