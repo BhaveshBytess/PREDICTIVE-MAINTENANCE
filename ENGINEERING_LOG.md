@@ -343,17 +343,3 @@
 * **Key Learning:** Binary classifiers need post-processing for graduated severity. Blend multiple signals for proportional response.
 
 ---
-
-## [Deployment] - Vercel Monorepo Configuration
-
-* **Context:** Preparing for cloud deployment on Vercel with React frontend + Python backend in same repo.
-* **The Hurdle:** Vercel auto-detects `requirements.txt` in root and assumes Python-only project, conflicting with frontend build.
-* **The Solution:** 
-  1. Moved `requirements.txt` from root to `backend/` directory
-  2. Updated `Dockerfile`, `setup_linux.sh`, `README.md` to reference new path
-  3. Created `vercel.json` with explicit routing:
-     - `/api/*` → `backend/api/main.py` (Python serverless)
-     - `/*` → React SPA (from `frontend/dist/`)
-* **Key Learning:** Monorepo deployments require explicit separation of concerns. Keep language-specific dependency files in their respective directories to prevent build system confusion.
-
----

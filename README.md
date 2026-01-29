@@ -208,7 +208,6 @@ predictive-maintenance/
 │   └── backend.service      # Systemd unit file
 ├── docker-compose.yml       # Full stack deployment
 ├── Dockerfile               # Backend container
-├── vercel.json              # Vercel deployment config
 └── ENGINEERING_LOG.md       # Decision journal
 ```
 
@@ -417,35 +416,20 @@ Key architectural decisions are documented in [`ENGINEERING_LOG.md`](ENGINEERING
 
 ## 🛡️ Production Deployment
 
-### Option 1: Docker (Self-Hosted)
+### Docker
 ```bash
 docker-compose up -d
 ```
 
-### Option 2: Systemd (Bare-Metal Linux)
+### Systemd (Linux)
 ```bash
 sudo ./scripts/setup_linux.sh
 sudo systemctl status predictive-maintenance
 ```
 
-### Option 3: Vercel (Cloud)
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Deploy (from project root)
-vercel
-```
-
-**Vercel Configuration (`vercel.json`):**
-- Frontend: React build output from `frontend/dist/`
-- Backend: Python serverless functions at `backend/api/main.py`
-- Routes: `/api/*` → Python backend, `/*` → React SPA
-
 **Resilience features:**
 - Docker: `restart: unless-stopped`
 - Systemd: `Restart=always`, `RestartSec=5`
-- Vercel: Auto-scaling serverless functions
 - Health checks on all services
 
 ---
