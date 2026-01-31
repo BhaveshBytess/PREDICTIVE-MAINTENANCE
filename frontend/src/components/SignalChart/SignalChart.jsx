@@ -174,15 +174,64 @@ function SignalChart({ data, anomalyIndices = [], title }) {
     // Find chart Y-axis max for positioning maintenance markers
     const yMax = Math.max(...dataWithAnomalies.map(d => d.value)) * 1.1
 
+    // Get chart time range from data points
+    const chartTimeStrings = dataWithAnomalies.map(d => d.time)
+    
     // Map maintenance logs to chart time format for reference lines
-    const maintenanceMarkers = maintenanceLogs.map(log => {
-        const logTime = new Date(log.timestamp)
-        return {
-            ...log,
-            displayTime: logTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-            color: severityColors[log.severity] || '#6b7280'
-        }
-    })
+    // Only include logs that fall within the chart's visible time range
+    const maintenanceMarkers = maintenanceLogs
+        .map(log => {
+            const logTime = new Date(log.timestamp)
+            const logTimeStr = logTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+            
+            // Check if this time exists in chart data (exact match)
+            const exactMatch = chartTimeStrings.includes(logTimeStr)
+            
+            // If no exact match, find the nearest time point
+            let displayTime = logTimeStr
+            if (!exactMatch && chartTimeStrings.length > 0) {
+                // Find closest time point in chart data
+                const logMinutes = logTime.getHours() * 60 + logTime.getMinutes()
+                let closestIdx = 0
+                let closestDiff = Infinity
+                
+                chartTimeStrings.forEach((timeStr, idx) => {
+                    // Parse time string like "02:30 PM" back to minutes
+                    const match = timeStr.match(/(\d{2}):(\d{2})\s*(AM|PM)/i)
+                    if (match) {
+                        let hours = parseInt(match[1])
+                        const mins = parseInt(match[2])
+                        const ampm = match[3].toUpperCase()
+                        
+                        if (ampm === 'PM' && hours !== 12) hours += 12
+                        if (ampm === 'AM' && hours === 12) hours = 0
+                        
+                        const chartMinutes = hours * 60 + mins
+                        const diff = Math.abs(chartMinutes - logMinutes)
+                        
+                        if (diff < closestDiff) {
+                            closestDiff = diff
+                            closestIdx = idx
+                        }
+                    }
+                })
+                
+                // Only show marker if within 5 minutes of a chart point
+                if (closestDiff <= 5) {
+                    displayTime = chartTimeStrings[closestIdx]
+                } else {
+                    return null // Log is outside chart's time range
+                }
+            }
+            
+            return {
+                ...log,
+                displayTime,
+                color: severityColors[log.severity] || '#6b7280',
+                isWithinRange: true
+            }
+        })
+        .filter(Boolean) // Remove nulls (logs outside time range)
 
     return (
         <div className={`glass-card ${styles.container}`}>
@@ -293,7 +342,7 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                 </div>
                 <div className={styles.legendItem}>
                     <span className={styles.legendMaintenance}>🔧</span>
-                    <span>Maintenance Log ({maintenanceLogs.length})</span>
+                    <span>Maintenance Log ({maintenanceMarkers.length} on chart{maintenanceLogs.length > maintenanceMarkers.length ? `, ${maintenanceLogs.length} total` : ''})</span>
                 </div>
             </div>
 
