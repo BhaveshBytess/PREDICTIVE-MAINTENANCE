@@ -258,3 +258,104 @@ async def list_event_types():
         ],
         "severities": [s.value for s in Severity]
     }
+
+
+# =============================================================================
+# LOGS RETRIEVAL ENDPOINT
+# =============================================================================
+
+class LogEntryRecord(BaseModel):
+    """A single maintenance log record from InfluxDB."""
+    timestamp: datetime
+    asset_id: str
+    event_type: str
+    severity: str
+    description: str
+    event_id: Optional[str] = None
+
+
+class LogsListResponse(BaseModel):
+    """Response containing maintenance logs for chart overlay."""
+    logs: list[LogEntryRecord]
+    count: int
+    query_params: dict
+
+
+@router.get(
+    "s",  # Maps to /api/logs (router prefix is /api/log)
+    response_model=LogsListResponse,
+    summary="Retrieve maintenance logs",
+    description="Fetch maintenance logs from InfluxDB for chart overlay and correlation analysis."
+)
+async def get_logs(
+    hours: int = 24,
+    limit: int = 50,
+    asset_id: Optional[str] = None
+) -> LogsListResponse:
+    """
+    Retrieve maintenance logs for dashboard visualization.
+    
+    **Use Cases:**
+    - Overlay maintenance events on sensor charts
+    - Correlate sensor anomalies with maintenance activities
+    - Audit trail of operator-logged events
+    
+    **Parameters:**
+    - `hours`: Look back period (default 24h)
+    - `limit`: Maximum records to return (default 50)
+    - `asset_id`: Filter by specific asset (optional)
+    
+    **Returns:**
+    List of log entries with timestamp, event_type, severity, description.
+    """
+    # Build Flux query for maintenance_logs measurement
+    # Query description field only (has all the info we need, tags come along)
+    asset_filter = f'|> filter(fn: (r) => r["asset_id"] == "{asset_id}")' if asset_id else ""
+    
+    flux_query = f'''
+        from(bucket: "sensor_data")
+        |> range(start: -{hours}h)
+        |> filter(fn: (r) => r["_measurement"] == "maintenance_logs")
+        |> filter(fn: (r) => r["_field"] == "description")
+        {asset_filter}
+        |> sort(columns: ["_time"], desc: true)
+        |> limit(n: {limit})
+    '''
+    
+    logger.info(f"Querying maintenance logs: hours={hours}, limit={limit}, asset_id={asset_id}")
+    
+    try:
+        results = db.query_data(flux_query)
+        
+        # Transform results into LogEntryRecord objects
+        # Tags (asset_id, event_type, severity) are included in each record
+        logs = []
+        for record in results:
+            try:
+                log_entry = LogEntryRecord(
+                    timestamp=record.get("time"),
+                    asset_id=record.get("asset_id", "Unknown"),
+                    event_type=record.get("event_type", "UNKNOWN"),
+                    severity=record.get("severity", "MEDIUM"),
+                    description=record.get("value", ""),  # Field value is the description
+                    event_id=None  # event_id is in a separate field, not critical for display
+                )
+                logs.append(log_entry)
+            except Exception as e:
+                logger.warning(f"Skipping malformed log record: {e}")
+                continue
+        
+        logger.info(f"✅ Retrieved {len(logs)} maintenance logs")
+        
+        return LogsListResponse(
+            logs=logs,
+            count=len(logs),
+            query_params={"hours": hours, "limit": limit, "asset_id": asset_id}
+        )
+        
+    except Exception as e:
+        logger.exception(f"Error querying maintenance logs: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve logs: {str(e)}"
+        )

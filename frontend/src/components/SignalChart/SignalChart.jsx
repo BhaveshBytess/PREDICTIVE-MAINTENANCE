@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import {
     LineChart,
     Line,
@@ -6,9 +7,11 @@ import {
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    ReferenceArea
+    ReferenceArea,
+    ReferenceLine
 } from 'recharts'
 import styles from './SignalChart.module.css'
+import { API_URL } from '../../config'
 
 // Generate mock data for demo
 const generateMockData = () => {
@@ -26,6 +29,7 @@ const generateMockData = () => {
 
         data.push({
             time: time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            fullTime: time,
             value: hasAnomaly ? value + 8 : value,
             anomaly: hasAnomaly
         })
@@ -77,7 +81,84 @@ function calculateAnomalyRegions(data) {
     return regions
 }
 
+/**
+ * Severity color mapping for maintenance log markers
+ */
+const severityColors = {
+    CRITICAL: '#ef4444',  // Red
+    HIGH: '#f97316',      // Orange  
+    MEDIUM: '#eab308',    // Yellow
+    LOW: '#22c55e'        // Green
+}
+
+/**
+ * Custom tooltip for maintenance log markers
+ */
+const MaintenanceTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length) return null
+    
+    const data = payload[0]?.payload
+    if (!data?.maintenanceLog) return null
+    
+    const log = data.maintenanceLog
+    const color = severityColors[log.severity] || '#6b7280'
+    
+    return (
+        <div className={styles.maintenanceTooltip}>
+            <div className={styles.tooltipHeader} style={{ borderLeftColor: color }}>
+                <span className={styles.tooltipIcon}>🔧</span>
+                <span className={styles.tooltipType}>
+                    {log.event_type.replace(/_/g, ' ')}
+                </span>
+            </div>
+            <div className={styles.tooltipBody}>
+                <p className={styles.tooltipDescription}>{log.description}</p>
+                <div className={styles.tooltipMeta}>
+                    <span className={styles.tooltipSeverity} style={{ color }}>
+                        {log.severity}
+                    </span>
+                    <span className={styles.tooltipTime}>
+                        {new Date(log.timestamp).toLocaleString()}
+                    </span>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 function SignalChart({ data, anomalyIndices = [], title }) {
+    const [maintenanceLogs, setMaintenanceLogs] = useState([])
+    const [logsLoading, setLogsLoading] = useState(false)
+
+    // Fetch maintenance logs on mount
+    useEffect(() => {
+        async function fetchMaintenanceLogs() {
+            try {
+                setLogsLoading(true)
+                const response = await fetch(`${API_URL}/api/logs?hours=24&limit=20`)
+                
+                if (!response.ok) {
+                    console.warn('Failed to fetch maintenance logs:', response.status)
+                    return
+                }
+                
+                const data = await response.json()
+                setMaintenanceLogs(data.logs || [])
+                console.log(`📋 Loaded ${data.count} maintenance logs for chart overlay`)
+            } catch (error) {
+                console.warn('Error fetching maintenance logs:', error)
+            } finally {
+                setLogsLoading(false)
+            }
+        }
+        
+        fetchMaintenanceLogs()
+        
+        // Refresh logs every 60 seconds
+        const interval = setInterval(fetchMaintenanceLogs, 60000)
+        return () => clearInterval(interval)
+    }, [])
+
     // Use mock data if no real data provided
     const chartData = data?.length > 0 ? data : generateMockData()
 
@@ -89,6 +170,19 @@ function SignalChart({ data, anomalyIndices = [], title }) {
 
     // Calculate coalesced anomaly regions for shaded areas
     const anomalyRegions = calculateAnomalyRegions(dataWithAnomalies)
+
+    // Find chart Y-axis max for positioning maintenance markers
+    const yMax = Math.max(...dataWithAnomalies.map(d => d.value)) * 1.1
+
+    // Map maintenance logs to chart time format for reference lines
+    const maintenanceMarkers = maintenanceLogs.map(log => {
+        const logTime = new Date(log.timestamp)
+        return {
+            ...log,
+            displayTime: logTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            color: severityColors[log.severity] || '#6b7280'
+        }
+    })
 
     return (
         <div className={`glass-card ${styles.container}`}>
@@ -154,6 +248,23 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                             />
                         ))}
 
+                        {/* Maintenance log vertical markers */}
+                        {maintenanceMarkers.map((marker, idx) => (
+                            <ReferenceLine
+                                key={`maintenance-${idx}`}
+                                x={marker.displayTime}
+                                stroke={marker.color}
+                                strokeWidth={2}
+                                strokeDasharray="4 4"
+                                label={{
+                                    value: '🔧',
+                                    position: 'top',
+                                    fill: marker.color,
+                                    fontSize: 16
+                                }}
+                            />
+                        ))}
+
                         <Line
                             type="monotone"
                             dataKey="value"
@@ -180,7 +291,37 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                     <span className={styles.legendAnomaly}></span>
                     <span>Anomaly Region</span>
                 </div>
+                <div className={styles.legendItem}>
+                    <span className={styles.legendMaintenance}>🔧</span>
+                    <span>Maintenance Log ({maintenanceLogs.length})</span>
+                </div>
             </div>
+
+            {/* Maintenance logs list below chart */}
+            {maintenanceLogs.length > 0 && (
+                <div className={styles.maintenanceList}>
+                    <h4 className={styles.maintenanceListTitle}>Recent Maintenance Events</h4>
+                    <div className={styles.maintenanceItems}>
+                        {maintenanceLogs.slice(0, 5).map((log, idx) => (
+                            <div 
+                                key={idx} 
+                                className={styles.maintenanceItem}
+                                style={{ borderLeftColor: severityColors[log.severity] }}
+                            >
+                                <span className={styles.maintenanceType}>
+                                    {log.event_type.replace(/_/g, ' ')}
+                                </span>
+                                <span className={styles.maintenanceTime}>
+                                    {new Date(log.timestamp).toLocaleString()}
+                                </span>
+                                <span className={styles.maintenanceDesc}>
+                                    {log.description.slice(0, 60)}{log.description.length > 60 ? '...' : ''}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
