@@ -10,11 +10,17 @@ Constraints:
 - Audit metadata: asset_id, timestamp (UTC), model_version
 - Smart filenames: Report_{AssetID}_{YYYYMMDD_HHMM}.pdf
 - PDF as formal "Health Certificate" format
+
+Phase 5 Enhancement:
+- Include Operator Logs (Ground Truth) in reports
+- Excel: New "Operator_Logs" worksheet
+- PDF: "Recent Maintenance Events" section
 """
 
+import logging
 from io import BytesIO
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, timezone, timedelta
+from typing import Optional, List, Dict, Any
 
 import pandas as pd
 from reportlab.lib import colors
@@ -28,6 +34,10 @@ from reportlab.platypus import (
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 from backend.rules.assessor import HealthReport, RiskLevel
+from backend.database import db
+
+
+logger = logging.getLogger(__name__)
 
 
 # Risk level colors for visual formatting
