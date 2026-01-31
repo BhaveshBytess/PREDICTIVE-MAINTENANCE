@@ -343,3 +343,41 @@
 * **Key Learning:** Binary classifiers need post-processing for graduated severity. Blend multiple signals for proportional response.
 
 ---
+
+## [Phase 13] - Operator Log Ground Truth System
+
+* **Context:** Implementing maintenance event logging for supervised ML training data collection.
+* **The Hurdle:** Needed to persist operator-logged events and correlate with sensor data for future ML improvements.
+* **The Solution:** 
+  1. Created `maintenance_logs` measurement in InfluxDB with fields: event_type, severity, description, technician
+  2. Built React modal with form validation and severity presets (CRITICAL/HIGH/MEDIUM/LOW)
+  3. Added real-time log display panel with color-coded severity badges
+  4. Integrated logs into all report formats with Maintenance Correlation Analysis
+* **Key Learning:** Ground truth data from operators is essential for supervised learning. Persistence allows correlation with sensor anomalies over time.
+
+---
+
+## [Phase 13] - Role-Specialized Report Formats
+
+* **Context:** Different stakeholders need different report depths - executives want quick summaries, engineers need full technical detail.
+* **The Hurdle:** Single report format couldn't serve all audiences effectively.
+* **The Solution:** Three specialized formats:
+  ```
+  EXECUTIVE PDF (?format=pdf):
+  - 1-page with Health Grade box (A/B/C/D/F)
+  - 4 KPI cards: Max Vibration, Days to Maintenance, Critical Alerts, Risk Level
+  - Last 2 maintenance logs only
+  
+  MULTI-SHEET EXCEL (?format=xlsx):
+  - Sheet 1: Summary (14 metrics including Health Grade)
+  - Sheet 2: Operator_Logs (Event Time, Type, Severity, Note)
+  - Sheet 3: Raw_Sensor_Data (full timeline with anomaly scores)
+  
+  INDUSTRIAL PDF (?format=industrial):
+  - 5 pages with full technical analysis
+  - NEW: Maintenance Correlation Analysis on Page 2
+  - Correlates sensor readings with nearby maintenance events
+  ```
+* **Key Learning:** Design reports for specific personas. Plant Managers scan for grades; Engineers need correlation tables.
+
+---
