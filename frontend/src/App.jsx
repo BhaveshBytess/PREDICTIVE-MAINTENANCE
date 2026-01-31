@@ -51,6 +51,12 @@ function App() {
         faultCaptureRate: 100.0
     })
     const [isSandboxOpen, setIsSandboxOpen] = useState(false)
+    const [logsRefreshTrigger, setLogsRefreshTrigger] = useState(0)
+
+    // Callback when a new operator log is added - triggers chart refresh
+    const handleLogAdded = useCallback(() => {
+        setLogsRefreshTrigger(prev => prev + 1)
+    }, [])
 
     // Fetch data from API
     const fetchData = useCallback(async () => {
@@ -161,6 +167,7 @@ function App() {
                             data={chartData}
                             anomalyIndices={anomalyPoints}
                             title="Real-time Power Signature and anomalies (Last 1 hour)"
+                            refreshTrigger={logsRefreshTrigger}
                         />
                     </div>
                 </div>
@@ -183,7 +190,7 @@ function App() {
                     />
 
                     {/* Operator Input Log */}
-                    <OperatorLog />
+                    <OperatorLog onLogAdded={handleLogAdded} />
 
                     {/* Validation Scorecard */}
                     <PerformanceCard

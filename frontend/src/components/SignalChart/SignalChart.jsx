@@ -126,11 +126,11 @@ const MaintenanceTooltip = ({ active, payload }) => {
     )
 }
 
-function SignalChart({ data, anomalyIndices = [], title }) {
+function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
     const [maintenanceLogs, setMaintenanceLogs] = useState([])
     const [logsLoading, setLogsLoading] = useState(false)
 
-    // Fetch maintenance logs on mount
+    // Fetch maintenance logs on mount and when refreshTrigger changes
     useEffect(() => {
         async function fetchMaintenanceLogs() {
             try {
@@ -142,9 +142,9 @@ function SignalChart({ data, anomalyIndices = [], title }) {
                     return
                 }
                 
-                const data = await response.json()
-                setMaintenanceLogs(data.logs || [])
-                console.log(`📋 Loaded ${data.count} maintenance logs for chart overlay`)
+                const result = await response.json()
+                setMaintenanceLogs(result.logs || [])
+                console.log(`📋 Loaded ${result.count} maintenance logs for chart overlay`)
             } catch (error) {
                 console.warn('Error fetching maintenance logs:', error)
             } finally {
@@ -157,7 +157,7 @@ function SignalChart({ data, anomalyIndices = [], title }) {
         // Refresh logs every 60 seconds
         const interval = setInterval(fetchMaintenanceLogs, 60000)
         return () => clearInterval(interval)
-    }, [])
+    }, [refreshTrigger]) // Re-fetch when refreshTrigger changes
 
     // Use mock data if no real data provided
     const chartData = data?.length > 0 ? data : generateMockData()
@@ -174,64 +174,101 @@ function SignalChart({ data, anomalyIndices = [], title }) {
     // Find chart Y-axis max for positioning maintenance markers
     const yMax = Math.max(...dataWithAnomalies.map(d => d.value)) * 1.1
 
-    // Get chart time range from data points
-    const chartTimeStrings = dataWithAnomalies.map(d => d.time)
+    // Build a time-indexed map from chart data for efficient lookup
+    // We need to match maintenance logs to their correct position on the scrolling chart
+    const chartTimeMap = new Map()
+    dataWithAnomalies.forEach((point, idx) => {
+        chartTimeMap.set(point.time, { point, idx })
+    })
     
-    // Map maintenance logs to chart time format for reference lines
-    // Only include logs that fall within the chart's visible time range
+    // Match maintenance logs to chart data points
+    // A log is "on chart" if its timestamp matches a visible data point
     const maintenanceMarkers = maintenanceLogs
         .map(log => {
             const logTime = new Date(log.timestamp)
-            const logTimeStr = logTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+            // Format to match chart's time format (same as data points)
+            const logTimeStr = logTime.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                second: '2-digit'  // Match the chart's time format with seconds
+            })
             
-            // Check if this time exists in chart data (exact match)
-            const exactMatch = chartTimeStrings.includes(logTimeStr)
+            // Also try without seconds for backward compatibility
+            const logTimeStrNoSec = logTime.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit'
+            })
             
-            // If no exact match, find the nearest time point
-            let displayTime = logTimeStr
-            if (!exactMatch && chartTimeStrings.length > 0) {
-                // Find closest time point in chart data
-                const logMinutes = logTime.getHours() * 60 + logTime.getMinutes()
-                let closestIdx = 0
-                let closestDiff = Infinity
-                
-                chartTimeStrings.forEach((timeStr, idx) => {
-                    // Parse time string like "02:30 PM" back to minutes
-                    const match = timeStr.match(/(\d{2}):(\d{2})\s*(AM|PM)/i)
-                    if (match) {
-                        let hours = parseInt(match[1])
-                        const mins = parseInt(match[2])
-                        const ampm = match[3].toUpperCase()
+            // Check for exact match first (with seconds)
+            if (chartTimeMap.has(logTimeStr)) {
+                return {
+                    ...log,
+                    displayTime: logTimeStr,
+                    color: severityColors[log.severity] || '#6b7280',
+                    chartIndex: chartTimeMap.get(logTimeStr).idx
+                }
+            }
+            
+            // Try without seconds
+            if (chartTimeMap.has(logTimeStrNoSec)) {
+                return {
+                    ...log,
+                    displayTime: logTimeStrNoSec,
+                    color: severityColors[log.severity] || '#6b7280',
+                    chartIndex: chartTimeMap.get(logTimeStrNoSec).idx
+                }
+            }
+            
+            // Find closest time point within 2 minutes
+            const logMs = logTime.getTime()
+            let closestMatch = null
+            let closestDiff = Infinity
+            
+            dataWithAnomalies.forEach((point, idx) => {
+                // Parse the chart time back to a Date for comparison
+                // The chart data should have a fullTime or we parse from time string
+                let pointMs
+                if (point.fullTime) {
+                    pointMs = new Date(point.fullTime).getTime()
+                } else {
+                    // Approximate: assume today's date with the time string
+                    const today = new Date()
+                    const timeMatch = point.time.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)/i)
+                    if (timeMatch) {
+                        let hours = parseInt(timeMatch[1])
+                        const mins = parseInt(timeMatch[2])
+                        const secs = parseInt(timeMatch[3]) || 0
+                        const ampm = timeMatch[4].toUpperCase()
                         
                         if (ampm === 'PM' && hours !== 12) hours += 12
                         if (ampm === 'AM' && hours === 12) hours = 0
                         
-                        const chartMinutes = hours * 60 + mins
-                        const diff = Math.abs(chartMinutes - logMinutes)
-                        
-                        if (diff < closestDiff) {
-                            closestDiff = diff
-                            closestIdx = idx
-                        }
+                        const pointDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, mins, secs)
+                        pointMs = pointDate.getTime()
                     }
-                })
+                }
                 
-                // Only show marker if within 5 minutes of a chart point
-                if (closestDiff <= 5) {
-                    displayTime = chartTimeStrings[closestIdx]
-                } else {
-                    return null // Log is outside chart's time range
+                if (pointMs) {
+                    const diff = Math.abs(pointMs - logMs)
+                    if (diff < closestDiff && diff <= 2 * 60 * 1000) { // Within 2 minutes
+                        closestDiff = diff
+                        closestMatch = { point, idx }
+                    }
+                }
+            })
+            
+            if (closestMatch) {
+                return {
+                    ...log,
+                    displayTime: closestMatch.point.time,
+                    color: severityColors[log.severity] || '#6b7280',
+                    chartIndex: closestMatch.idx
                 }
             }
             
-            return {
-                ...log,
-                displayTime,
-                color: severityColors[log.severity] || '#6b7280',
-                isWithinRange: true
-            }
+            return null // Log is outside chart's visible time range
         })
-        .filter(Boolean) // Remove nulls (logs outside time range)
+        .filter(Boolean) // Remove nulls
 
     return (
         <div className={`glass-card ${styles.container}`}>

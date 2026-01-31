@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import styles from './OperatorLog.module.css'
 import { API_URL } from '../../config'
 
-function OperatorLog() {
+function OperatorLog({ onLogAdded }) {
     // Options fetched from backend
     const [eventTypes, setEventTypes] = useState([])
     const [severities, setSeverities] = useState([])
@@ -104,6 +104,11 @@ function OperatorLog() {
 
             // Success feedback
             alert(`✅ Log saved successfully!\n\nEvent ID: ${result.event_id}`)
+
+            // Notify parent to refresh chart
+            if (onLogAdded) {
+                onLogAdded()
+            }
 
             // Clear form
             setSelectedType('')
