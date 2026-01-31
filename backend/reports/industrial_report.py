@@ -59,6 +59,7 @@ from backend.reports.mock_data import (
 )
 from backend.reports.components.gauge import draw_health_gauge
 from backend.reports.components.charts import draw_horizontal_bar_chart, draw_sparkline
+from backend.reports.generator import fetch_maintenance_logs_for_report
 
 
 # =============================================================================
@@ -592,7 +593,8 @@ def build_page_1_executive_summary(
 def build_page_2_sensor_analysis(
     report: HealthReport,
     current_readings: Dict[str, float],
-    styles: Dict[str, ParagraphStyle]
+    styles: Dict[str, ParagraphStyle],
+    sensor_history: Optional[List[Dict[str, Any]]] = None
 ) -> List:
     """
     Build Page 2: Sensor Analysis
@@ -600,8 +602,13 @@ def build_page_2_sensor_analysis(
     Contains:
     - Current Readings Table with deviation from baseline
     - 24h Statistics (Mocked)
+    - Maintenance Correlation Analysis (when sensor_history provided)
     """
     story = []
+    
+    # Default to empty list
+    if sensor_history is None:
+        sensor_history = []
     
     story.append(PageBreak())
     story.append(Paragraph("Sensor Analysis", styles['section_header']))
@@ -753,6 +760,134 @@ def build_page_2_sensor_analysis(
         "Status thresholds: NORMAL (<5%), ELEVATED (5-15%), CRITICAL (>15%)."
     )
     story.append(Paragraph(baseline_note, styles['body_small']))
+    story.append(Spacer(1, 25))
+    
+    # === MAINTENANCE CORRELATION ANALYSIS ===
+    # This section correlates sensor data with maintenance events for engineers
+    story.append(Paragraph("Maintenance Correlation Analysis", styles['subsection']))
+    story.append(Paragraph(
+        "Sensor readings correlated with maintenance events. This data is used for "
+        "supervised ML training to improve predictive accuracy.",
+        styles['body_small']
+    ))
+    story.append(Spacer(1, 10))
+    
+    # Fetch maintenance logs for correlation
+    maintenance_logs = fetch_maintenance_logs_for_report(hours=24, asset_id=report.asset_id, limit=10)
+    
+    if sensor_history and len(sensor_history) > 0:
+        # Build correlation table: show sensor readings with nearby maintenance events
+        corr_header = ['Timestamp', 'Vibration (g)', 'Current (A)', 'Anomaly Score', 'Status', 'Maintenance Event']
+        corr_data = [corr_header]
+        
+        # Take last 8 sensor readings for the table
+        recent_sensors = sensor_history[-8:] if len(sensor_history) > 8 else sensor_history
+        
+        for reading in recent_sensors:
+            ts = reading.get('timestamp')
+            if isinstance(ts, datetime):
+                ts_str = ts.strftime('%H:%M:%S')
+            elif isinstance(ts, str):
+                ts_str = ts[-8:] if len(ts) > 8 else ts  # Extract time portion
+            else:
+                ts_str = str(ts)[:8] if ts else 'N/A'
+            
+            vibration = reading.get('vibration_g', 0.0)
+            current = reading.get('current_a', 0.0)
+            anomaly_score = reading.get('anomaly_score', 0.0)
+            sensor_status = reading.get('status', 'NORMAL')
+            
+            # Check if there's a maintenance event near this timestamp
+            maint_event = '-'
+            for log in maintenance_logs:
+                if log['timestamp']:
+                    # Simple proximity check (within 5 minutes)
+                    log_ts = log['timestamp']
+                    if isinstance(ts, datetime) and isinstance(log_ts, datetime):
+                        diff = abs((ts - log_ts).total_seconds())
+                        if diff < 300:  # 5 minutes
+                            maint_event = f"{log['severity']}: {log['event_type'][:15]}"
+                            break
+            
+            corr_data.append([
+                ts_str,
+                f"{vibration:.3f}",
+                f"{current:.2f}",
+                f"{anomaly_score:.2f}",
+                sensor_status,
+                maint_event
+            ])
+        
+        corr_table = Table(
+            corr_data,
+            colWidths=[1*inch, 1*inch, 0.9*inch, 1*inch, 0.9*inch, 1.7*inch]
+        )
+        
+        corr_table_style = [
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), WHITE),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (1, 0), (-2, -1), 'CENTER'),
+            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+            ('BOX', (0, 0), (-1, -1), 1, GRAY_BORDER),
+            ('INNERGRID', (0, 0), (-1, -1), 0.5, GRAY_BORDER),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+        ]
+        
+        # Color code status and highlight anomalies
+        for row_idx in range(1, len(corr_data)):
+            row = corr_data[row_idx]
+            status = row[4]
+            anomaly = float(row[3])
+            
+            # Alternating rows
+            if row_idx % 2 == 0:
+                corr_table_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), GRAY_BG))
+            
+            # Status coloring
+            if status == 'CRITICAL':
+                corr_table_style.append(('TEXTCOLOR', (4, row_idx), (4, row_idx), DANGER))
+                corr_table_style.append(('FONTNAME', (4, row_idx), (4, row_idx), 'Helvetica-Bold'))
+            elif status == 'WARNING':
+                corr_table_style.append(('TEXTCOLOR', (4, row_idx), (4, row_idx), ORANGE))
+            
+            # Highlight high anomaly scores
+            if anomaly > 0.7:
+                corr_table_style.append(('TEXTCOLOR', (3, row_idx), (3, row_idx), DANGER))
+                corr_table_style.append(('FONTNAME', (3, row_idx), (3, row_idx), 'Helvetica-Bold'))
+            elif anomaly > 0.4:
+                corr_table_style.append(('TEXTCOLOR', (3, row_idx), (3, row_idx), ORANGE))
+            
+            # Highlight maintenance events
+            if row[5] != '-':
+                corr_table_style.append(('TEXTCOLOR', (-1, row_idx), (-1, row_idx), PRIMARY))
+                corr_table_style.append(('FONTNAME', (-1, row_idx), (-1, row_idx), 'Helvetica-Bold'))
+        
+        corr_table.setStyle(TableStyle(corr_table_style))
+        story.append(corr_table)
+        
+        # Summary stats
+        total_readings = len(sensor_history)
+        high_anomaly_count = sum(1 for r in sensor_history if r.get('anomaly_score', 0) > 0.7)
+        avg_vibration = sum(r.get('vibration_g', 0) for r in sensor_history) / max(total_readings, 1)
+        
+        story.append(Spacer(1, 8))
+        story.append(Paragraph(
+            f"<i>Analysis Summary: {total_readings} readings in window | "
+            f"{high_anomaly_count} high anomaly events | "
+            f"Avg vibration: {avg_vibration:.3f}g | "
+            f"{len(maintenance_logs)} maintenance logs</i>",
+            styles['body_small']
+        ))
+    else:
+        story.append(Paragraph(
+            "<font color='#6b7280'><i>No sensor history available for correlation analysis. "
+            "Sensor data is collected during real-time monitoring.</i></font>",
+            styles['body_small']
+        ))
     
     return story
 
@@ -1118,6 +1253,75 @@ def build_page_5_audit_trail(
     story.append(log_table)
     story.append(Spacer(1, 25))
     
+    # === OPERATOR MAINTENANCE LOGS (Phase 5) ===
+    story.append(Paragraph("Operator Maintenance Logs", styles['subsection']))
+    story.append(Paragraph(
+        "Ground-truth maintenance events logged by operators within the report period. "
+        "These events are correlated with sensor data for supervised ML training.",
+        styles['body_small']
+    ))
+    story.append(Spacer(1, 10))
+    
+    # Fetch maintenance logs from InfluxDB (24h window)
+    maintenance_logs = fetch_maintenance_logs_for_report(hours=24, asset_id=report.asset_id, limit=50)
+    
+    if maintenance_logs:
+        maint_header = ['Event Time', 'Type', 'Severity', 'Description']
+        maint_data = [maint_header]
+        
+        for log in maintenance_logs:
+            event_time = log['timestamp'].strftime('%Y-%m-%d %H:%M') if log['timestamp'] else 'N/A'
+            event_type = log['event_type'].replace('_', ' ').title()[:25]  # Truncate long types
+            description = log['description'][:40] + '...' if len(log['description']) > 40 else log['description']
+            maint_data.append([event_time, event_type, log['severity'], description])
+        
+        maint_table = Table(maint_data, colWidths=[1.3*inch, 1.8*inch, 0.8*inch, 2.6*inch])
+        
+        # Build table style with conditional severity coloring
+        maint_table_style = [
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), WHITE),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (2, 0), (2, -1), 'CENTER'),
+            ('BOX', (0, 0), (-1, -1), 1, GRAY_BORDER),
+            ('INNERGRID', (0, 0), (-1, -1), 0.5, GRAY_BORDER),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]
+        
+        # Apply severity coloring (CRITICAL = red, HIGH = orange)
+        for row_idx, log in enumerate(maintenance_logs, start=1):
+            if row_idx < len(maint_data):  # Safety check
+                severity = log['severity']
+                if severity == 'CRITICAL':
+                    maint_table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), DANGER))
+                    maint_table_style.append(('FONTNAME', (2, row_idx), (2, row_idx), 'Helvetica-Bold'))
+                elif severity == 'HIGH':
+                    maint_table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), ORANGE))
+                elif severity == 'LOW':
+                    maint_table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), SUCCESS))
+                
+                # Alternating row colors
+                if row_idx % 2 == 0:
+                    maint_table_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), GRAY_BG))
+        
+        maint_table.setStyle(TableStyle(maint_table_style))
+        story.append(maint_table)
+        story.append(Paragraph(
+            f"<i>Total: {len(maintenance_logs)} events in the past 24 hours</i>",
+            styles['body_small']
+        ))
+    else:
+        story.append(Paragraph(
+            "<font color='#6b7280'><i>No maintenance events logged in the past 24 hours.</i></font>",
+            styles['body_small']
+        ))
+    
+    story.append(Spacer(1, 25))
+    
     # === COMPLIANCE VERIFICATION ===
     story.append(Paragraph("Compliance Verification", styles['subsection']))
     story.append(Paragraph(
@@ -1216,7 +1420,8 @@ class IndustrialReportGenerator:
     def generate(
         self,
         report: HealthReport,
-        current_readings: Optional[Dict[str, float]] = None
+        current_readings: Optional[Dict[str, float]] = None,
+        sensor_history: Optional[List[Dict[str, Any]]] = None
     ) -> bytes:
         """
         Generate a complete 5-page Industrial Asset Health Certificate.
@@ -1225,6 +1430,7 @@ class IndustrialReportGenerator:
             report: Persisted HealthReport object (immutable snapshot)
             current_readings: Optional sensor readings dict. If not provided,
                               will use baseline values.
+            sensor_history: Optional list of sensor data points for correlation analysis
                               
         Returns:
             PDF file as bytes
@@ -1232,6 +1438,10 @@ class IndustrialReportGenerator:
         # Use default readings if not provided
         if current_readings is None:
             current_readings = dict(HEALTHY_BASELINES)
+        
+        # Default to empty list if no history
+        if sensor_history is None:
+            sensor_history = []
         
         # Ensure power_kw is present
         if 'power_kw' not in current_readings:
@@ -1262,8 +1472,8 @@ class IndustrialReportGenerator:
         # Page 1: Executive Summary
         story.extend(build_page_1_executive_summary(report, current_readings, self.styles))
         
-        # Page 2: Sensor Analysis
-        story.extend(build_page_2_sensor_analysis(report, current_readings, self.styles))
+        # Page 2: Sensor Analysis (now includes Maintenance Correlation)
+        story.extend(build_page_2_sensor_analysis(report, current_readings, self.styles, sensor_history))
         
         # Page 3: ML Explainability
         story.extend(build_page_3_ml_explainability(report, current_readings, self.styles))
@@ -1282,7 +1492,8 @@ class IndustrialReportGenerator:
 
 def generate_industrial_report(
     report: HealthReport,
-    current_readings: Optional[Dict[str, float]] = None
+    current_readings: Optional[Dict[str, float]] = None,
+    sensor_history: Optional[List[Dict[str, Any]]] = None
 ) -> bytes:
     """
     Convenience function to generate an Industrial Asset Health Certificate.
@@ -1290,12 +1501,13 @@ def generate_industrial_report(
     Args:
         report: Persisted HealthReport object
         current_readings: Optional sensor readings dict
+        sensor_history: Optional list of sensor data points for correlation analysis
         
     Returns:
         PDF file as bytes
     """
     generator = IndustrialReportGenerator()
-    return generator.generate(report, current_readings)
+    return generator.generate(report, current_readings, sensor_history)
 
 
 def generate_industrial_filename(asset_id: str, timestamp: datetime) -> str:

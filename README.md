@@ -41,7 +41,8 @@ An end-to-end **Predictive Maintenance** system that monitors industrial assets 
 | 🎚️ **Fault Simulation** | Configurable severity levels (MILD/MEDIUM/SEVERE) for targeted testing |
 | 💡 **Explainability** | Human-readable explanations: "Vibration 3.2σ above normal" |
 | 📈 **Dashboard** | React + Recharts real-time visualization with glassmorphism UI |
-| 📄 **Reporting** | 5-page Industrial Asset Health Certificate with audit trail, ROI analysis, and compliance |
+| 📄 **Reporting** | Role-specialized reports: Executive PDF (Plant Managers), Multi-sheet Excel (Analysts), 5-page Industrial Certificate (Engineers) |
+| 📝 **Operator Logs** | Ground-truth maintenance event logging with InfluxDB persistence for supervised ML training |
 
 ---
 
@@ -265,7 +266,11 @@ else:                   risk = LOW
   - Red (0-24): CRITICAL risk
 - ⏰ **Maintenance Window estimation** (days until recommended service)
 - 💡 **Insight panel** with specific explanations (e.g., "Vibration 3.2σ above normal")
-- 📥 **Download options**: 5-page Industrial Report (PDF), Basic PDF, Excel
+- 📥 **Download options**: 
+  - **Executive PDF** — 1-page summary with Health Grade (A/B/C/D/F) for Plant Managers
+  - **Multi-sheet Excel** — Summary, Operator Logs, Raw Sensor Data for Data Analysts
+  - **Industrial PDF** — 5-page technical report with Maintenance Correlation Analysis for Engineers
+- 📝 **Operator Log Panel** — Real-time maintenance event logging with severity levels
 
 **Anomaly Visualization Logic:**
 - Red dashed lines appear **only when risk ≠ LOW**
@@ -383,6 +388,7 @@ Key architectural decisions are documented in [`ENGINEERING_LOG.md`](ENGINEERING
 - **Phase 9**: Pure renderer pattern (frontend displays, backend computes)
 - **Phase 10**: Snapshot rule for auditable reports; 5-page Industrial Certificate
 - **Phase 11**: Dual deployment (Docker + systemd)
+- **Phase 13**: Operator Log feature with InfluxDB persistence; role-specialized reports
 - **Scoring**: Blended ML + range-based scoring for graduated severity response
 
 ---
