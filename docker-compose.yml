@@ -25,12 +25,10 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env
     environment:
       - ENVIRONMENT=local
-      - INFLUX_URL=${INFLUX_URL:-http://influxdb:8086}
-      - INFLUX_TOKEN=${INFLUX_TOKEN:-}
-      - INFLUX_ORG=${INFLUX_ORG:-}
-      - INFLUX_BUCKET=${INFLUX_BUCKET:-sensor_data}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
