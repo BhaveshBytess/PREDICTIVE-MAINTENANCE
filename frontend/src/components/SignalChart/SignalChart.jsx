@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, memo } from 'react'
 import {
     ComposedChart,
     Line,
@@ -94,22 +94,24 @@ const severityColors = {
 }
 
 /**
- * Custom wrench shape for Scatter points
+ * Custom wrench shape for Scatter points - optimized
  */
-const WrenchShape = (props) => {
+const WrenchShape = memo((props) => {
     const { cx, cy, fill } = props
+    if (!cx || !cy) return null
     return (
-        <g transform={`translate(${cx - 10}, ${cy - 10})`}>
-            <circle cx="10" cy="10" r="10" fill={fill} opacity={0.2} />
-            <text x="10" y="15" textAnchor="middle" fontSize="14">🔧</text>
+        <g transform={`translate(${cx - 12}, ${cy - 12})`}>
+            <circle cx="12" cy="12" r="12" fill={fill} fillOpacity={0.3} stroke={fill} strokeWidth={1.5} />
+            <text x="12" y="17" textAnchor="middle" fontSize="14">🔧</text>
         </g>
     )
-}
+})
 
 /**
  * Custom unified tooltip for both sensor data and maintenance logs
+ * Memoized for performance
  */
-const ChartTooltip = ({ active, payload, label }) => {
+const ChartTooltip = memo(({ active, payload, label }) => {
     if (!active || !payload?.length) return null
     
     // Check if this is a maintenance log point (has isLogPoint flag)
@@ -166,7 +168,7 @@ const ChartTooltip = ({ active, payload, label }) => {
     }
     
     return null
-}
+})
 
 function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
     const [maintenanceLogs, setMaintenanceLogs] = useState([])
@@ -222,46 +224,65 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
         }
     })
 
-    // Calculate coalesced anomaly regions for shaded areas
-    const anomalyRegions = calculateAnomalyRegions(dataWithTimestamps)
-
-    // Get chart X-axis domain (timestamp range)
-    const chartStartTime = dataWithTimestamps.length > 0 ? dataWithTimestamps[0].timestamp : 0
-    const chartEndTime = dataWithTimestamps.length > 0 ? dataWithTimestamps[dataWithTimestamps.length - 1].timestamp : 0
+    // Memoized calculations for performance
+    const { anomalyRegions, chartStartTime, chartEndTime, yMin, yMax, yDomain } = useMemo(() => {
+        const regions = calculateAnomalyRegions(dataWithTimestamps)
+        
+        // STRICT 60-second sliding window based on latest data point
+        const endTime = dataWithTimestamps.length > 0 
+            ? dataWithTimestamps[dataWithTimestamps.length - 1].timestamp 
+            : Date.now()
+        const startTime = endTime - 60 * 1000 // Exactly 60 seconds before end
+        
+        // Calculate Y bounds from visible data only
+        const visibleData = dataWithTimestamps.filter(d => d.timestamp >= startTime && d.timestamp <= endTime)
+        const values = visibleData.map(d => d.value || 0)
+        const minY = values.length > 0 ? Math.min(...values) : 0
+        const maxY = values.length > 0 ? Math.max(...values) : 100
+        const padding = (maxY - minY) * 0.15 || 5
+        
+        return {
+            anomalyRegions: regions,
+            chartStartTime: startTime,
+            chartEndTime: endTime,
+            yMin: minY,
+            yMax: maxY,
+            yDomain: [minY - padding, maxY + padding * 2] // Extra top padding for log markers
+        }
+    }, [dataWithTimestamps])
     
-    // Calculate Y-axis max for positioning log markers near the top
-    const yMax = Math.max(...dataWithTimestamps.map(d => d.value || 0))
-    const yMin = Math.min(...dataWithTimestamps.map(d => d.value || 0))
-    const logYPosition = yMax + (yMax - yMin) * 0.1 // Position logs slightly above max value
+    // Fixed Y position for maintenance markers (top of chart as "satellites")
+    const LOG_MARKER_Y = yDomain[1] - (yDomain[1] - yDomain[0]) * 0.08
     
-    // Prepare Scatter data for maintenance logs
-    // Each point includes full log details for the tooltip
-    const logPoints = maintenanceLogs
-        .map(log => {
-            const logTimestamp = new Date(log.timestamp).getTime()
-            
-            // Check if log falls within chart's visible time range
-            if (logTimestamp >= chartStartTime && logTimestamp <= chartEndTime) {
-                return {
-                    ...log,
-                    timestamp: logTimestamp, // X-Axis position
-                    logY: logYPosition,      // Y-Axis position (top of chart)
-                    isLogPoint: true,        // Flag for tooltip detection
-                    color: severityColors[log.severity] || '#6b7280'
+    // Memoized log points calculation
+    const logPoints = useMemo(() => {
+        return maintenanceLogs
+            .map(log => {
+                const logTimestamp = new Date(log.timestamp).getTime()
+                
+                // Check if log falls within chart's visible time range
+                if (logTimestamp >= chartStartTime && logTimestamp <= chartEndTime) {
+                    return {
+                        ...log,
+                        timestamp: logTimestamp,  // X-Axis position
+                        logY: LOG_MARKER_Y,       // Fixed Y position at top
+                        isLogPoint: true,         // Flag for tooltip detection
+                        color: severityColors[log.severity] || '#6b7280'
+                    }
                 }
-            }
-            return null
+                return null
+            })
+            .filter(Boolean)
+    }, [maintenanceLogs, chartStartTime, chartEndTime, LOG_MARKER_Y])
+
+    // Format timestamp for X-axis tick display (HH:MM:SS for precision)
+    const formatTimestamp = useMemo(() => (ts) => {
+        return new Date(ts).toLocaleTimeString('en-US', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            second: '2-digit'
         })
-        .filter(Boolean)
-
-    // Format timestamp for X-axis tick display
-    const formatTimestamp = (ts) => {
-        return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-    }
-
-    // Log debug info
-    console.log(`📊 Chart domain: ${new Date(chartStartTime).toISOString()} to ${new Date(chartEndTime).toISOString()}`)
-    console.log(`📋 Maintenance markers: ${logPoints.length} visible out of ${maintenanceLogs.length} total`)
+    }, [])
 
     return (
         <div className={`glass-card ${styles.container}`}>
@@ -290,22 +311,27 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
                             scale="time"
                             tickFormatter={formatTimestamp}
                             stroke="#6b7280"
-                            tick={{ fill: '#9ca3af', fontSize: 10 }}
+                            tick={{ fill: '#9ca3af', fontSize: 9 }}
                             tickLine={false}
-                            interval="preserveStartEnd"
+                            tickCount={5}
                             allowDataOverflow={true}
                         />
 
                         <YAxis
                             stroke="#6b7280"
-                            tick={{ fill: '#9ca3af', fontSize: 12 }}
+                            tick={{ fill: '#9ca3af', fontSize: 11 }}
                             tickLine={false}
                             axisLine={false}
-                            domain={[yMin - (yMax - yMin) * 0.1, yMax + (yMax - yMin) * 0.2]}
+                            domain={yDomain}
+                            allowDataOverflow={true}
                         />
 
-                        {/* Custom unified tooltip */}
-                        <Tooltip content={<ChartTooltip />} />
+                        {/* Optimized tooltip with minimal cursor */}
+                        <Tooltip 
+                            content={<ChartTooltip />}
+                            cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1 }}
+                            isAnimationActive={false}
+                        />
 
                         {/* Shaded red regions for anomaly spans */}
                         {anomalyRegions.map((region, idx) => (
@@ -321,19 +347,15 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
                             />
                         ))}
 
-                        {/* Sensor data line */}
+                        {/* Sensor data line - optimized with no activeDot */}
                         <Line
                             type="monotone"
                             dataKey="value"
                             stroke="url(#lineGradient)"
                             strokeWidth={2}
                             dot={false}
-                            activeDot={{
-                                r: 6,
-                                fill: '#3b82f6',
-                                stroke: '#fff',
-                                strokeWidth: 2
-                            }}
+                            activeDot={false}
+                            isAnimationActive={false}
                         />
 
                         {/* Maintenance Log Scatter Overlay */}
