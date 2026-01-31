@@ -14,7 +14,7 @@ function OperatorLog() {
     const [selectedType, setSelectedType] = useState('')
     const [selectedSeverity, setSelectedSeverity] = useState('')
     const [description, setDescription] = useState('')
-    const [logDate, setLogDate] = useState('')
+    const [logDateTime, setLogDateTime] = useState('')
 
     // Submission state
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -77,10 +77,9 @@ function OperatorLog() {
                 description: description.trim(),
             }
 
-            // Add timestamp if date is provided (convert to UTC ISO string)
-            if (logDate) {
-                // Create date at noon UTC to avoid timezone issues
-                const date = new Date(logDate + 'T12:00:00Z')
+            // Add timestamp if datetime is provided (convert to UTC ISO string)
+            if (logDateTime) {
+                const date = new Date(logDateTime)
                 payload.timestamp = date.toISOString()
             }
 
@@ -110,7 +109,7 @@ function OperatorLog() {
             setSelectedType('')
             setSelectedSeverity('')
             setDescription('')
-            setLogDate('')
+            setLogDateTime('')
 
         } catch (error) {
             console.error('Error saving log:', error)
@@ -210,15 +209,16 @@ function OperatorLog() {
                     />
                 </div>
 
-                {/* Date (optional - for backdating) */}
+                {/* Date & Time (optional - for backdating) */}
                 <div className={styles.field}>
-                    <label htmlFor="logDate">Event Date (optional)</label>
+                    <label htmlFor="logDateTime">Event Date & Time (optional)</label>
                     <input
-                        type="date"
-                        id="logDate"
-                        value={logDate}
-                        onChange={(e) => setLogDate(e.target.value)}
+                        type="datetime-local"
+                        id="logDateTime"
+                        value={logDateTime}
+                        onChange={(e) => setLogDateTime(e.target.value)}
                         disabled={isSubmitting}
+                        className={styles.datetimeInput}
                     />
                     <small className={styles.hint}>Leave empty to use current time</small>
                 </div>

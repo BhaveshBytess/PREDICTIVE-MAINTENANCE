@@ -59,6 +59,11 @@
     min-height: 60px;
 }
 
+/* Datetime input styling */
+.datetimeInput {
+    color-scheme: dark;
+}
+
 /* Hint text under fields */
 .hint {
     color: var(--text-secondary);
