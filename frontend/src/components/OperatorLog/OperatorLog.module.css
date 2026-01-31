@@ -31,3 +31,44 @@
 .submitBtn {
     margin-top: var(--spacing-sm);
 }
+
+.submitBtn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Loading and error states */
+.loading {
+    color: var(--text-secondary);
+    font-style: italic;
+    padding: var(--spacing-md);
+    text-align: center;
+}
+
+.error {
+    color: var(--danger);
+    padding: var(--spacing-md);
+    text-align: center;
+    background-color: rgba(239, 68, 68, 0.1);
+    border-radius: var(--radius-md);
+}
+
+/* Textarea styling */
+.textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+/* Hint text under fields */
+.hint {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    margin-top: 2px;
+}
+
+/* Disabled input styling */
+.disabledInput {
+    opacity: 0.7;
+    cursor: not-allowed;
+    background-color: var(--glass-bg);
+}

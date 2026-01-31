@@ -17,6 +17,7 @@ from .routes import router
 from .integration_routes import router as integration_router
 from .system_routes import router as system_router
 from .sandbox_routes import router as sandbox_router
+from .operator_routes import router as operator_router
 
 
 # Configure logging
@@ -64,6 +65,7 @@ app.include_router(router, tags=["Ingestion"])
 app.include_router(integration_router)
 app.include_router(system_router)
 app.include_router(sandbox_router)
+app.include_router(operator_router)
 
 
 @app.get("/", include_in_schema=False)
