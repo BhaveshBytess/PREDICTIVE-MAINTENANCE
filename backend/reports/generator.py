@@ -38,6 +38,67 @@ RISK_COLORS = {
     RiskLevel.CRITICAL: colors.HexColor('#ef4444'), # Red
 }
 
+# Severity colors for maintenance logs
+SEVERITY_COLORS = {
+    'CRITICAL': colors.HexColor('#ef4444'),  # Red
+    'HIGH': colors.HexColor('#f97316'),      # Orange
+    'MEDIUM': colors.HexColor('#f59e0b'),    # Amber
+    'LOW': colors.HexColor('#10b981'),       # Green
+}
+
+
+def fetch_maintenance_logs_for_report(
+    hours: int = 24,
+    asset_id: Optional[str] = None,
+    limit: int = 100
+) -> List[Dict[str, Any]]:
+    """
+    Fetch maintenance logs from InfluxDB for report generation.
+    
+    Uses the log's event_time (the time selected in UI), NOT created_at.
+    This represents the actual machine event time.
+    
+    Args:
+        hours: Look back period
+        asset_id: Optional filter by asset
+        limit: Maximum records
+        
+    Returns:
+        List of log dicts with: timestamp, asset_id, event_type, severity, description
+    """
+    asset_filter = f'|> filter(fn: (r) => r["asset_id"] == "{asset_id}")' if asset_id else ""
+    
+    flux_query = f'''
+        from(bucket: "sensor_data")
+        |> range(start: -{hours}h)
+        |> filter(fn: (r) => r["_measurement"] == "maintenance_logs")
+        |> filter(fn: (r) => r["_field"] == "description")
+        {asset_filter}
+        |> sort(columns: ["_time"], desc: true)
+        |> limit(n: {limit})
+    '''
+    
+    try:
+        results = db.query_data(flux_query)
+        
+        logs = []
+        for record in results:
+            logs.append({
+                'timestamp': record.get('time'),
+                'asset_id': record.get('asset_id', 'Unknown'),
+                'event_type': record.get('event_type', 'UNKNOWN'),
+                'severity': record.get('severity', 'MEDIUM'),
+                'description': record.get('value', ''),
+                'technician_id': record.get('technician_id', 'Operator')  # Default value
+            })
+        
+        logger.info(f"📋 Fetched {len(logs)} maintenance logs for report")
+        return logs
+        
+    except Exception as e:
+        logger.warning(f"Failed to fetch maintenance logs for report: {e}")
+        return []
+
 
 def generate_filename(asset_id: str, timestamp: datetime, extension: str) -> str:
     """
@@ -197,7 +258,54 @@ def generate_pdf_report(report: HealthReport) -> bytes:
             normal_style
         ))
     
-    story.append(Spacer(1, 30))
+    story.append(Spacer(1, 20))
+    
+    # === RECENT MAINTENANCE EVENTS (Phase 5) ===
+    story.append(Paragraph("Recent Maintenance Events", section_style))
+    
+    # Fetch maintenance logs (last 3 High/Critical events)
+    all_logs = fetch_maintenance_logs_for_report(hours=168, asset_id=report.asset_id, limit=50)  # 7 days
+    critical_logs = [log for log in all_logs if log['severity'] in ('CRITICAL', 'HIGH')][:3]
+    
+    if critical_logs:
+        maintenance_data = [['Event Time', 'Type', 'Severity', 'Description']]
+        for log in critical_logs:
+            event_time = log['timestamp'].strftime('%Y-%m-%d %H:%M') if log['timestamp'] else 'N/A'
+            event_type = log['event_type'].replace('_', ' ').title()
+            description = log['description'][:50] + '...' if len(log['description']) > 50 else log['description']
+            maintenance_data.append([event_time, event_type, log['severity'], description])
+        
+        maintenance_table = Table(maintenance_data, colWidths=[1.3*inch, 1.5*inch, 0.8*inch, 3*inch])
+        
+        # Build style with conditional coloring for CRITICAL
+        table_style = [
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#374151')),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
+        ]
+        
+        # Apply red text to CRITICAL severity cells
+        for row_idx, log in enumerate(critical_logs, start=1):
+            if log['severity'] == 'CRITICAL':
+                table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), colors.HexColor('#ef4444')))
+                table_style.append(('FONTNAME', (2, row_idx), (2, row_idx), 'Helvetica-Bold'))
+            elif log['severity'] == 'HIGH':
+                table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), colors.HexColor('#f97316')))
+        
+        maintenance_table.setStyle(TableStyle(table_style))
+        story.append(maintenance_table)
+    else:
+        story.append(Paragraph(
+            "<font color='#6b7280'>No high-severity maintenance events in the past 7 days.</font>",
+            normal_style
+        ))
+    
+    story.append(Spacer(1, 20))
     
     # === FOOTER WITH AUDIT METADATA ===
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#e5e7eb')))
@@ -271,11 +379,48 @@ def generate_excel_report(report: HealthReport) -> bytes:
     summary_df = pd.DataFrame(summary_data)
     explanations_df = pd.DataFrame(explanations_data) if explanations_data['Reason'] else None
     
+    # === OPERATOR LOGS WORKSHEET (Phase 5) ===
+    # Fetch maintenance logs from InfluxDB (24h window)
+    maintenance_logs = fetch_maintenance_logs_for_report(hours=24, asset_id=report.asset_id, limit=100)
+    
+    operator_logs_data = {
+        'Event Time (ISO)': [],
+        'Asset ID': [],
+        'Event Type': [],
+        'Severity': [],
+        'Description': [],
+        'Technician ID': []
+    }
+    
+    for log in maintenance_logs:
+        # Use event_time (the user-selected time), formatted as ISO
+        event_time = log['timestamp'].isoformat() if log['timestamp'] else ''
+        operator_logs_data['Event Time (ISO)'].append(event_time)
+        operator_logs_data['Asset ID'].append(log['asset_id'])
+        operator_logs_data['Event Type'].append(log['event_type'])
+        operator_logs_data['Severity'].append(log['severity'])
+        operator_logs_data['Description'].append(log['description'])
+        operator_logs_data['Technician ID'].append(log.get('technician_id', 'Operator'))
+    
+    operator_logs_df = pd.DataFrame(operator_logs_data)
+    
     # Write to Excel with multiple sheets
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
         
         if explanations_df is not None and not explanations_df.empty:
             explanations_df.to_excel(writer, sheet_name='Insights', index=False)
+        
+        # Always include Operator_Logs sheet (may be empty)
+        operator_logs_df.to_excel(writer, sheet_name='Operator_Logs', index=False)
+        
+        # Auto-adjust column widths for Operator_Logs
+        worksheet = writer.sheets['Operator_Logs']
+        for idx, col in enumerate(operator_logs_df.columns):
+            max_len = max(
+                operator_logs_df[col].astype(str).map(len).max() if len(operator_logs_df) > 0 else 0,
+                len(col)
+            ) + 2
+            worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 50)
     
     return buffer.getvalue()

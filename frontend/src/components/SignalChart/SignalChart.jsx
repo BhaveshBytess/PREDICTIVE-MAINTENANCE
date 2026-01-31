@@ -1,15 +1,14 @@
-import { useState, useEffect, useMemo, memo } from 'react'
+import { useState, useEffect } from 'react'
 import {
-    ComposedChart,
+    LineChart,
     Line,
-    Scatter,
     XAxis,
     YAxis,
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
     ReferenceArea,
-    Cell
+    ReferenceLine
 } from 'recharts'
 import styles from './SignalChart.module.css'
 import { API_URL } from '../../config'
@@ -94,81 +93,39 @@ const severityColors = {
 }
 
 /**
- * Custom wrench shape for Scatter points - optimized
+ * Custom tooltip for maintenance log markers
  */
-const WrenchShape = memo((props) => {
-    const { cx, cy, fill } = props
-    if (!cx || !cy) return null
-    return (
-        <g transform={`translate(${cx - 12}, ${cy - 12})`}>
-            <circle cx="12" cy="12" r="12" fill={fill} fillOpacity={0.3} stroke={fill} strokeWidth={1.5} />
-            <text x="12" y="17" textAnchor="middle" fontSize="14">🔧</text>
-        </g>
-    )
-})
-
-/**
- * Custom unified tooltip for both sensor data and maintenance logs
- * Memoized for performance
- */
-const ChartTooltip = memo(({ active, payload, label }) => {
+const MaintenanceTooltip = ({ active, payload }) => {
     if (!active || !payload?.length) return null
     
-    // Check if this is a maintenance log point (has isLogPoint flag)
-    const logPayload = payload.find(p => p.payload?.isLogPoint)
-    if (logPayload) {
-        const log = logPayload.payload
-        const color = severityColors[log.severity] || '#6b7280'
-        
-        return (
-            <div className={styles.maintenanceTooltip}>
-                <div className={styles.tooltipHeader} style={{ borderLeftColor: color }}>
-                    <span className={styles.tooltipIcon}>🔧</span>
-                    <span className={styles.tooltipType}>
-                        {log.event_type.replace(/_/g, ' ')}
-                    </span>
-                </div>
-                <div className={styles.tooltipBody}>
-                    <p className={styles.tooltipDescription}>{log.description}</p>
-                    <div className={styles.tooltipMeta}>
-                        <span className={styles.tooltipSeverity} style={{ color }}>
-                            {log.severity}
-                        </span>
-                        <span className={styles.tooltipTime}>
-                            {new Date(log.timestamp).toLocaleString()}
-                        </span>
-                    </div>
-                </div>
-            </div>
-        )
-    }
+    const data = payload[0]?.payload
+    if (!data?.maintenanceLog) return null
     
-    // Regular sensor data tooltip
-    const sensorPayload = payload.find(p => p.dataKey === 'value')
-    if (sensorPayload) {
-        const data = sensorPayload.payload
-        const suffix = data?.anomaly ? ' ⚠️ ANOMALY' : ''
-        const time = new Date(data.timestamp).toLocaleTimeString('en-US', { 
-            hour: '2-digit', 
-            minute: '2-digit',
-            second: '2-digit'
-        })
-        
-        return (
-            <div className={styles.sensorTooltip}>
-                <div className={styles.tooltipTime}>{time}</div>
-                <div className={styles.tooltipValue}>
-                    <span className={styles.tooltipLabel}>Power:</span>
-                    <span className={styles.tooltipNumber}>
-                        {data.value.toFixed(2)} mW{suffix}
+    const log = data.maintenanceLog
+    const color = severityColors[log.severity] || '#6b7280'
+    
+    return (
+        <div className={styles.maintenanceTooltip}>
+            <div className={styles.tooltipHeader} style={{ borderLeftColor: color }}>
+                <span className={styles.tooltipIcon}>🔧</span>
+                <span className={styles.tooltipType}>
+                    {log.event_type.replace(/_/g, ' ')}
+                </span>
+            </div>
+            <div className={styles.tooltipBody}>
+                <p className={styles.tooltipDescription}>{log.description}</p>
+                <div className={styles.tooltipMeta}>
+                    <span className={styles.tooltipSeverity} style={{ color }}>
+                        {log.severity}
+                    </span>
+                    <span className={styles.tooltipTime}>
+                        {new Date(log.timestamp).toLocaleString()}
                     </span>
                 </div>
             </div>
-        )
-    }
-    
-    return null
-})
+        </div>
+    )
+}
 
 function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
     const [maintenanceLogs, setMaintenanceLogs] = useState([])
@@ -224,65 +181,40 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
         }
     })
 
-    // Memoized calculations for performance
-    const { anomalyRegions, chartStartTime, chartEndTime, yMin, yMax, yDomain } = useMemo(() => {
-        const regions = calculateAnomalyRegions(dataWithTimestamps)
-        
-        // STRICT 60-second sliding window based on latest data point
-        const endTime = dataWithTimestamps.length > 0 
-            ? dataWithTimestamps[dataWithTimestamps.length - 1].timestamp 
-            : Date.now()
-        const startTime = endTime - 60 * 1000 // Exactly 60 seconds before end
-        
-        // Calculate Y bounds from visible data only
-        const visibleData = dataWithTimestamps.filter(d => d.timestamp >= startTime && d.timestamp <= endTime)
-        const values = visibleData.map(d => d.value || 0)
-        const minY = values.length > 0 ? Math.min(...values) : 0
-        const maxY = values.length > 0 ? Math.max(...values) : 100
-        const padding = (maxY - minY) * 0.15 || 5
-        
-        return {
-            anomalyRegions: regions,
-            chartStartTime: startTime,
-            chartEndTime: endTime,
-            yMin: minY,
-            yMax: maxY,
-            yDomain: [minY - padding, maxY + padding * 2] // Extra top padding for log markers
-        }
-    }, [dataWithTimestamps])
-    
-    // Fixed Y position for maintenance markers (top of chart as "satellites")
-    const LOG_MARKER_Y = yDomain[1] - (yDomain[1] - yDomain[0]) * 0.08
-    
-    // Memoized log points calculation
-    const logPoints = useMemo(() => {
-        return maintenanceLogs
-            .map(log => {
-                const logTimestamp = new Date(log.timestamp).getTime()
-                
-                // Check if log falls within chart's visible time range
-                if (logTimestamp >= chartStartTime && logTimestamp <= chartEndTime) {
-                    return {
-                        ...log,
-                        timestamp: logTimestamp,  // X-Axis position
-                        logY: LOG_MARKER_Y,       // Fixed Y position at top
-                        isLogPoint: true,         // Flag for tooltip detection
-                        color: severityColors[log.severity] || '#6b7280'
-                    }
-                }
-                return null
-            })
-            .filter(Boolean)
-    }, [maintenanceLogs, chartStartTime, chartEndTime, LOG_MARKER_Y])
+    // Calculate coalesced anomaly regions for shaded areas
+    const anomalyRegions = calculateAnomalyRegions(dataWithTimestamps)
 
-    // Format timestamp for X-axis tick display (HH:MM:SS for precision)
-    const formatTimestamp = useMemo(() => (ts) => {
-        return new Date(ts).toLocaleTimeString('en-US', { 
-            hour: '2-digit', 
-            minute: '2-digit',
-            second: '2-digit'
+    // Get chart X-axis domain (timestamp range)
+    const chartStartTime = dataWithTimestamps.length > 0 ? dataWithTimestamps[0].timestamp : 0
+    const chartEndTime = dataWithTimestamps.length > 0 ? dataWithTimestamps[dataWithTimestamps.length - 1].timestamp : 0
+    
+    // Pure Time-Based Marker Rendering:
+    // Simply check if log timestamp falls within chart's X-axis domain
+    // NO dependency on matching sensor data points!
+    const maintenanceMarkers = maintenanceLogs
+        .map(log => {
+            const logTimestamp = new Date(log.timestamp).getTime()
+            
+            // Check if log falls within chart's visible time range
+            if (logTimestamp >= chartStartTime && logTimestamp <= chartEndTime) {
+                return {
+                    ...log,
+                    timestamp: logTimestamp, // Unix timestamp for X position
+                    color: severityColors[log.severity] || '#6b7280'
+                }
+            }
+            return null // Log is outside chart's visible time range
         })
-    }, [])
+        .filter(Boolean) // Remove nulls
+
+    // Format timestamp for X-axis tick display
+    const formatTimestamp = (ts) => {
+        return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    }
+
+    // Log debug info
+    console.log(`📊 Chart domain: ${new Date(chartStartTime).toISOString()} to ${new Date(chartEndTime).toISOString()}`)
+    console.log(`📋 Maintenance markers: ${maintenanceMarkers.length} visible out of ${maintenanceLogs.length} total`)
 
     return (
         <div className={`glass-card ${styles.container}`}>
@@ -290,7 +222,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
 
             <div className={styles.chartWrapper}>
                 <ResponsiveContainer width="100%" height={350}>
-                    <ComposedChart data={dataWithTimestamps} margin={{ top: 30, right: 30, left: 0, bottom: 20 }}>
+                    <LineChart data={dataWithTimestamps} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
                         <defs>
                             <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
                                 <stop offset="0%" stopColor="#3b82f6" />
@@ -311,29 +243,34 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
                             scale="time"
                             tickFormatter={formatTimestamp}
                             stroke="#6b7280"
-                            tick={{ fill: '#9ca3af', fontSize: 9 }}
+                            tick={{ fill: '#9ca3af', fontSize: 10 }}
                             tickLine={false}
-                            tickCount={5}
-                            allowDataOverflow={true}
+                            interval="preserveStartEnd"
                         />
 
                         <YAxis
                             stroke="#6b7280"
-                            tick={{ fill: '#9ca3af', fontSize: 11 }}
+                            tick={{ fill: '#9ca3af', fontSize: 12 }}
                             tickLine={false}
                             axisLine={false}
-                            domain={yDomain}
-                            allowDataOverflow={true}
+                            domain={['auto', 'auto']}
                         />
 
-                        {/* Optimized tooltip with minimal cursor */}
-                        <Tooltip 
-                            content={<ChartTooltip />}
-                            cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1 }}
-                            isAnimationActive={false}
+                        <Tooltip
+                            contentStyle={{
+                                background: 'rgba(17, 24, 39, 0.95)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '8px',
+                                color: '#f9fafb'
+                            }}
+                            labelStyle={{ color: '#9ca3af' }}
+                            formatter={(value, name, props) => {
+                                const suffix = props.payload?.anomaly ? ' ⚠️ ANOMALY' : ''
+                                return [`${value.toFixed(2)}${suffix}`, 'Power (mW)']
+                            }}
                         />
 
-                        {/* Shaded red regions for anomaly spans */}
+                        {/* Shaded red regions for anomaly spans - use timestamps */}
                         {anomalyRegions.map((region, idx) => (
                             <ReferenceArea
                                 key={`anomaly-region-${idx}`}
@@ -347,32 +284,37 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
                             />
                         ))}
 
-                        {/* Sensor data line - optimized with no activeDot */}
+                        {/* Maintenance log vertical markers - PURE TIME-BASED */}
+                        {maintenanceMarkers.map((marker, idx) => (
+                            <ReferenceLine
+                                key={`maintenance-${marker.event_id || idx}`}
+                                x={marker.timestamp}
+                                stroke={marker.color}
+                                strokeWidth={2}
+                                strokeDasharray="4 4"
+                                label={{
+                                    value: '🔧',
+                                    position: 'top',
+                                    fill: marker.color,
+                                    fontSize: 16
+                                }}
+                            />
+                        ))}
+
                         <Line
                             type="monotone"
                             dataKey="value"
                             stroke="url(#lineGradient)"
                             strokeWidth={2}
                             dot={false}
-                            activeDot={false}
-                            isAnimationActive={false}
+                            activeDot={{
+                                r: 6,
+                                fill: '#3b82f6',
+                                stroke: '#fff',
+                                strokeWidth: 2
+                            }}
                         />
-
-                        {/* Maintenance Log Scatter Overlay */}
-                        <Scatter
-                            data={logPoints}
-                            dataKey="logY"
-                            shape={<WrenchShape />}
-                            isAnimationActive={false}
-                        >
-                            {logPoints.map((entry, index) => (
-                                <Cell 
-                                    key={`log-${entry.event_id || index}`} 
-                                    fill={entry.color}
-                                />
-                            ))}
-                        </Scatter>
-                    </ComposedChart>
+                    </LineChart>
                 </ResponsiveContainer>
             </div>
 
@@ -387,7 +329,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
                 </div>
                 <div className={styles.legendItem}>
                     <span className={styles.legendMaintenance}>🔧</span>
-                    <span>Maintenance Log ({logPoints.length} on chart{maintenanceLogs.length > logPoints.length ? `, ${maintenanceLogs.length} total` : ''})</span>
+                    <span>Maintenance Log ({maintenanceMarkers.length} on chart{maintenanceLogs.length > maintenanceMarkers.length ? `, ${maintenanceLogs.length} total` : ''})</span>
                 </div>
             </div>
 

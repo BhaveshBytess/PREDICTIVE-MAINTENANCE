@@ -169,35 +169,3 @@
     color: var(--text-secondary);
     font-size: 0.65rem;
 }
-
-/* Sensor Data Tooltip */
-.sensorTooltip {
-    background: rgba(17, 24, 39, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 8px;
-    padding: var(--spacing-sm) var(--spacing-md);
-    min-width: 140px;
-}
-
-.sensorTooltip .tooltipTime {
-    font-size: 0.75rem;
-    margin-bottom: var(--spacing-xs);
-    display: block;
-}
-
-.tooltipValue {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-}
-
-.tooltipLabel {
-    color: var(--text-secondary);
-    font-size: 0.75rem;
-}
-
-.tooltipNumber {
-    color: var(--text-primary);
-    font-weight: 600;
-    font-size: 0.875rem;
-}

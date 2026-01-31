@@ -59,6 +59,7 @@ from backend.reports.mock_data import (
 )
 from backend.reports.components.gauge import draw_health_gauge
 from backend.reports.components.charts import draw_horizontal_bar_chart, draw_sparkline
+from backend.reports.generator import fetch_maintenance_logs_for_report
 
 
 # =============================================================================
@@ -1116,6 +1117,75 @@ def build_page_5_audit_trail(
             ]))
     
     story.append(log_table)
+    story.append(Spacer(1, 25))
+    
+    # === OPERATOR MAINTENANCE LOGS (Phase 5) ===
+    story.append(Paragraph("Operator Maintenance Logs", styles['subsection']))
+    story.append(Paragraph(
+        "Ground-truth maintenance events logged by operators within the report period. "
+        "These events are correlated with sensor data for supervised ML training.",
+        styles['body_small']
+    ))
+    story.append(Spacer(1, 10))
+    
+    # Fetch maintenance logs from InfluxDB (24h window)
+    maintenance_logs = fetch_maintenance_logs_for_report(hours=24, asset_id=report.asset_id, limit=50)
+    
+    if maintenance_logs:
+        maint_header = ['Event Time', 'Type', 'Severity', 'Description']
+        maint_data = [maint_header]
+        
+        for log in maintenance_logs:
+            event_time = log['timestamp'].strftime('%Y-%m-%d %H:%M') if log['timestamp'] else 'N/A'
+            event_type = log['event_type'].replace('_', ' ').title()[:25]  # Truncate long types
+            description = log['description'][:40] + '...' if len(log['description']) > 40 else log['description']
+            maint_data.append([event_time, event_type, log['severity'], description])
+        
+        maint_table = Table(maint_data, colWidths=[1.3*inch, 1.8*inch, 0.8*inch, 2.6*inch])
+        
+        # Build table style with conditional severity coloring
+        maint_table_style = [
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), WHITE),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (2, 0), (2, -1), 'CENTER'),
+            ('BOX', (0, 0), (-1, -1), 1, GRAY_BORDER),
+            ('INNERGRID', (0, 0), (-1, -1), 0.5, GRAY_BORDER),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]
+        
+        # Apply severity coloring (CRITICAL = red, HIGH = orange)
+        for row_idx, log in enumerate(maintenance_logs, start=1):
+            if row_idx < len(maint_data):  # Safety check
+                severity = log['severity']
+                if severity == 'CRITICAL':
+                    maint_table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), DANGER))
+                    maint_table_style.append(('FONTNAME', (2, row_idx), (2, row_idx), 'Helvetica-Bold'))
+                elif severity == 'HIGH':
+                    maint_table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), ORANGE))
+                elif severity == 'LOW':
+                    maint_table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), SUCCESS))
+                
+                # Alternating row colors
+                if row_idx % 2 == 0:
+                    maint_table_style.append(('BACKGROUND', (0, row_idx), (-1, row_idx), GRAY_BG))
+        
+        maint_table.setStyle(TableStyle(maint_table_style))
+        story.append(maint_table)
+        story.append(Paragraph(
+            f"<i>Total: {len(maintenance_logs)} events in the past 24 hours</i>",
+            styles['body_small']
+        ))
+    else:
+        story.append(Paragraph(
+            "<font color='#6b7280'><i>No maintenance events logged in the past 24 hours.</i></font>",
+            styles['body_small']
+        ))
+    
     story.append(Spacer(1, 25))
     
     # === COMPLIANCE VERIFICATION ===
