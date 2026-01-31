@@ -404,17 +404,20 @@ async def download_report(
             'vibration_g': latest.get('vibration_g', 0.0),
         }
     
+    # Get sensor history for reports
+    sensor_data = _sensor_history.get(asset_id, [])
+    
     if format.lower() == "xlsx":
-        content = generate_excel_report(report)
+        content = generate_excel_report(report, sensor_data)
         filename = generate_filename(asset_id, report.timestamp, "xlsx")
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     elif format.lower() == "industrial":
         # 5-page Industrial Asset Health Certificate
-        content = generate_industrial_report(report, current_readings)
+        content = generate_industrial_report(report, current_readings, sensor_data)
         filename = generate_industrial_filename(asset_id, report.timestamp)
         media_type = "application/pdf"
     else:
-        content = generate_pdf_report(report)
+        content = generate_pdf_report(report, sensor_data)
         filename = generate_filename(asset_id, report.timestamp, "pdf")
         media_type = "application/pdf"
     

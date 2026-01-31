@@ -11,10 +11,10 @@ Constraints:
 - Smart filenames: Report_{AssetID}_{YYYYMMDD_HHMM}.pdf
 - PDF as formal "Health Certificate" format
 
-Phase 5 Enhancement:
-- Include Operator Logs (Ground Truth) in reports
-- Excel: New "Operator_Logs" worksheet
-- PDF: "Recent Maintenance Events" section
+Phase 5 Overhaul:
+- Excel: Multi-sheet (Summary, Operator_Logs, Raw_Sensor_Data)
+- Small PDF: Executive summary for Plant Managers (Health Grade A/B/C, KPIs, last 2 logs)
+- Large PDF: Technical report for Engineers (Maintenance Correlation Analysis)
 """
 
 import logging
@@ -24,12 +24,12 @@ from typing import Optional, List, Dict, Any
 
 import pandas as pd
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, cm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, ListFlowable, ListItem
+    HRFlowable, ListFlowable, ListItem, KeepTogether
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
@@ -55,6 +55,24 @@ SEVERITY_COLORS = {
     'MEDIUM': colors.HexColor('#f59e0b'),    # Amber
     'LOW': colors.HexColor('#10b981'),       # Green
 }
+
+# Health Grade mapping (A/B/C/D/F based on health score)
+def get_health_grade(score: int) -> tuple:
+    """
+    Convert health score to letter grade for executive reports.
+    
+    Returns: (grade, color, description)
+    """
+    if score >= 90:
+        return ('A', colors.HexColor('#10b981'), 'Excellent')
+    elif score >= 75:
+        return ('B', colors.HexColor('#22c55e'), 'Good')
+    elif score >= 50:
+        return ('C', colors.HexColor('#f59e0b'), 'Fair')
+    elif score >= 25:
+        return ('D', colors.HexColor('#f97316'), 'Poor')
+    else:
+        return ('F', colors.HexColor('#ef4444'), 'Critical')
 
 
 def fetch_maintenance_logs_for_report(
@@ -119,14 +137,21 @@ def generate_filename(asset_id: str, timestamp: datetime, extension: str) -> str
     return f"Report_{safe_asset_id}_{ts_str}.{extension}"
 
 
-def generate_pdf_report(report: HealthReport) -> bytes:
+def generate_pdf_report(
+    report: HealthReport,
+    sensor_history: Optional[List[Dict[str, Any]]] = None
+) -> bytes:
     """
-    Generate PDF "Health Certificate" from persisted HealthReport.
+    Generate Executive Summary PDF for Plant Managers.
     
-    The "Snapshot Rule": Uses stored report data, does NOT recompute.
+    A high-impact 1-pager with:
+    - Header: Machine ID + Overall Health Grade (A/B/C)
+    - KPI Box: Max Vibration, Total Run Time, Critical Alerts count
+    - Maintenance Snapshot: Last 2 Operator Logs
     
     Args:
-        report: Persisted HealthReport from Phase 7
+        report: Persisted HealthReport
+        sensor_history: Optional list of sensor readings for metrics
         
     Returns:
         PDF file as bytes
@@ -135,10 +160,10 @@ def generate_pdf_report(report: HealthReport) -> bytes:
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=2*cm,
-        leftMargin=2*cm,
-        topMargin=2*cm,
-        bottomMargin=2*cm
+        rightMargin=1.5*cm,
+        leftMargin=1.5*cm,
+        topMargin=1.5*cm,
+        bottomMargin=1.5*cm
     )
     
     # Styles
@@ -147,187 +172,216 @@ def generate_pdf_report(report: HealthReport) -> bytes:
     title_style = ParagraphStyle(
         'Title',
         parent=styles['Heading1'],
-        fontSize=24,
+        fontSize=28,
         alignment=TA_CENTER,
-        spaceAfter=12,
+        spaceAfter=6,
         textColor=colors.HexColor('#1f2937')
     )
     
-    subtitle_style = ParagraphStyle(
-        'Subtitle',
+    grade_style = ParagraphStyle(
+        'Grade',
         parent=styles['Normal'],
-        fontSize=12,
+        fontSize=72,
         alignment=TA_CENTER,
-        textColor=colors.HexColor('#6b7280'),
-        spaceAfter=24
+        textColor=colors.HexColor('#10b981'),
+        fontName='Helvetica-Bold'
     )
     
     section_style = ParagraphStyle(
         'Section',
         parent=styles['Heading2'],
         fontSize=14,
-        spaceBefore=16,
-        spaceAfter=8,
+        spaceBefore=12,
+        spaceAfter=6,
         textColor=colors.HexColor('#374151')
     )
     
-    normal_style = ParagraphStyle(
-        'Normal',
+    kpi_label_style = ParagraphStyle(
+        'KPILabel',
         parent=styles['Normal'],
-        fontSize=11,
-        leading=16
+        fontSize=10,
+        textColor=colors.HexColor('#6b7280'),
+        alignment=TA_CENTER
+    )
+    
+    kpi_value_style = ParagraphStyle(
+        'KPIValue',
+        parent=styles['Normal'],
+        fontSize=24,
+        fontName='Helvetica-Bold',
+        textColor=colors.HexColor('#1f2937'),
+        alignment=TA_CENTER
     )
     
     footer_style = ParagraphStyle(
         'Footer',
         parent=styles['Normal'],
-        fontSize=9,
+        fontSize=8,
         textColor=colors.HexColor('#9ca3af'),
         alignment=TA_CENTER
     )
     
-    # Build document content
+    # === Calculate KPIs from sensor history ===
+    max_vibration = 0.0
+    total_runtime_hours = 0.0
+    critical_alerts = 0
+    
+    if sensor_history and len(sensor_history) > 0:
+        # Max vibration
+        vibrations = [r.get('vibration_g', 0) for r in sensor_history if r.get('vibration_g')]
+        max_vibration = max(vibrations) if vibrations else 0.0
+        
+        # Estimate runtime (assuming 1 reading per second or calculate from timestamps)
+        total_runtime_hours = len(sensor_history) / 3600  # Rough estimate
+        
+        # Count anomalies/alerts
+        critical_alerts = sum(1 for r in sensor_history if r.get('is_anomaly', False))
+    
+    # Fetch maintenance logs
+    all_logs = fetch_maintenance_logs_for_report(hours=168, asset_id=report.asset_id, limit=50)
+    critical_count = len([log for log in all_logs if log['severity'] == 'CRITICAL'])
+    
+    # Build document
     story = []
     
-    # === HEADER ===
-    story.append(Paragraph("ASSET HEALTH CERTIFICATE", title_style))
-    story.append(Paragraph(
-        f"Industrial Asset Health Assessment Report",
-        subtitle_style
-    ))
+    # === HEADER WITH HEALTH GRADE ===
+    grade, grade_color, grade_desc = get_health_grade(report.health_score)
+    
+    story.append(Paragraph("EXECUTIVE HEALTH SUMMARY", title_style))
+    story.append(Spacer(1, 10))
+    
+    # Asset ID and timestamp row
+    header_data = [[
+        f"Machine: {report.asset_id}",
+        f"Report Date: {report.timestamp.strftime('%Y-%m-%d %H:%M UTC')}"
+    ]]
+    header_table = Table(header_data, colWidths=[3.5*inch, 3.5*inch])
+    header_table.setStyle(TableStyle([
+        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#6b7280')),
+        ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+    ]))
+    story.append(header_table)
+    
     story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#e5e7eb')))
     story.append(Spacer(1, 20))
     
-    # === ASSET INFORMATION BOX ===
-    story.append(Paragraph("Asset Information", section_style))
+    # === LARGE HEALTH GRADE BOX ===
+    grade_box_data = [[
+        Paragraph(f"<font color='{grade_color.hexval()}'>{grade}</font>", 
+                  ParagraphStyle('GradeLetter', fontSize=80, alignment=TA_CENTER, fontName='Helvetica-Bold')),
+    ], [
+        Paragraph(f"{grade_desc} Condition", 
+                  ParagraphStyle('GradeDesc', fontSize=14, alignment=TA_CENTER, textColor=colors.HexColor('#6b7280')))
+    ], [
+        Paragraph(f"Health Score: {report.health_score}/100", 
+                  ParagraphStyle('Score', fontSize=12, alignment=TA_CENTER, textColor=colors.HexColor('#374151')))
+    ]]
     
-    asset_data = [
-        ['Asset ID:', report.asset_id],
-        ['Report ID:', report.report_id],
-        ['Timestamp (UTC):', report.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')],
-    ]
-    
-    asset_table = Table(asset_data, colWidths=[2.5*inch, 4*inch])
-    asset_table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 11),
-        ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#374151')),
-        ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor('#1f2937')),
+    grade_table = Table(grade_box_data, colWidths=[4*inch])
+    grade_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-    ]))
-    story.append(asset_table)
-    story.append(Spacer(1, 20))
-    
-    # === HEALTH SUMMARY BOX ===
-    story.append(Paragraph("Health Summary", section_style))
-    
-    risk_color = RISK_COLORS.get(report.risk_level, colors.gray)
-    
-    summary_data = [
-        ['Health Score:', f"{report.health_score} / 100"],
-        ['Risk Level:', report.risk_level.value],
-        ['Maintenance Window:', f"{report.maintenance_window_days} days"],
-    ]
-    
-    summary_table = Table(summary_data, colWidths=[2.5*inch, 4*inch])
-    summary_table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 12),
-        ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#374151')),
-        ('TEXTCOLOR', (1, 1), (1, 1), risk_color),  # Risk level in color
-        ('FONTNAME', (1, 1), (1, 1), 'Helvetica-Bold'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f9fafb')),
-        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb')),
-        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
-        ('LEFTPADDING', (0, 0), (-1, -1), 12),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 12),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOX', (0, 0), (-1, -1), 2, grade_color),
+        ('TOPPADDING', (0, 0), (-1, -1), 15),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 15),
     ]))
-    story.append(summary_table)
-    story.append(Spacer(1, 20))
     
-    # === INSIGHTS & REASONING ===
-    story.append(Paragraph("Insights &amp; Reasoning", section_style))
+    # Center the grade box
+    grade_container = Table([[grade_table]], colWidths=[7*inch])
+    grade_container.setStyle(TableStyle([('ALIGN', (0, 0), (0, 0), 'CENTER')]))
+    story.append(grade_container)
+    story.append(Spacer(1, 25))
     
-    if report.explanations:
-        for exp in report.explanations:
-            story.append(Paragraph(f"• {exp.reason}", normal_style))
-            if exp.related_features:
-                features_text = ", ".join(exp.related_features)
-                story.append(Paragraph(
-                    f"  <font color='#6b7280'>Related: {features_text}</font>",
-                    normal_style
-                ))
-            story.append(Spacer(1, 6))
-    else:
-        story.append(Paragraph(
-            "✓ All systems operating within normal parameters.",
-            normal_style
-        ))
+    # === KEY PERFORMANCE INDICATORS ===
+    story.append(Paragraph("Key Performance Indicators", section_style))
+    story.append(Spacer(1, 10))
     
-    story.append(Spacer(1, 20))
+    kpi_data = [[
+        Paragraph(f"{max_vibration:.3f} g", kpi_value_style),
+        Paragraph(f"{report.maintenance_window_days}", kpi_value_style),
+        Paragraph(f"{critical_alerts + critical_count}", kpi_value_style),
+        Paragraph(f"{report.risk_level.value}", 
+                  ParagraphStyle('Risk', fontSize=20, fontName='Helvetica-Bold', 
+                                alignment=TA_CENTER, textColor=RISK_COLORS.get(report.risk_level, colors.gray)))
+    ], [
+        Paragraph("Max Vibration", kpi_label_style),
+        Paragraph("Days to Maintenance", kpi_label_style),
+        Paragraph("Critical Alerts", kpi_label_style),
+        Paragraph("Risk Level", kpi_label_style)
+    ]]
     
-    # === RECENT MAINTENANCE EVENTS (Phase 5) ===
-    story.append(Paragraph("Recent Maintenance Events", section_style))
+    kpi_table = Table(kpi_data, colWidths=[1.7*inch, 1.7*inch, 1.7*inch, 1.7*inch])
+    kpi_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb')),
+        ('INNERGRID', (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb')),
+        ('TOPPADDING', (0, 0), (-1, -1), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+    ]))
+    story.append(kpi_table)
+    story.append(Spacer(1, 25))
     
-    # Fetch maintenance logs (last 3 High/Critical events)
-    all_logs = fetch_maintenance_logs_for_report(hours=168, asset_id=report.asset_id, limit=50)  # 7 days
-    critical_logs = [log for log in all_logs if log['severity'] in ('CRITICAL', 'HIGH')][:3]
+    # === MAINTENANCE SNAPSHOT (Last 2 logs) ===
+    story.append(Paragraph("Recent Maintenance Activity", section_style))
     
-    if critical_logs:
-        maintenance_data = [['Event Time', 'Type', 'Severity', 'Description']]
-        for log in critical_logs:
+    last_2_logs = all_logs[:2]  # Already sorted by time desc
+    
+    if last_2_logs:
+        maint_data = [['Event Time', 'Type', 'Severity', 'Technician Note']]
+        for log in last_2_logs:
             event_time = log['timestamp'].strftime('%Y-%m-%d %H:%M') if log['timestamp'] else 'N/A'
-            event_type = log['event_type'].replace('_', ' ').title()
-            description = log['description'][:50] + '...' if len(log['description']) > 50 else log['description']
-            maintenance_data.append([event_time, event_type, log['severity'], description])
+            event_type = log['event_type'].replace('_', ' ').title()[:20]
+            note = log['description'][:40] + '...' if len(log['description']) > 40 else log['description']
+            maint_data.append([event_time, event_type, log['severity'], note])
         
-        maintenance_table = Table(maintenance_data, colWidths=[1.3*inch, 1.5*inch, 0.8*inch, 3*inch])
+        maint_table = Table(maint_data, colWidths=[1.4*inch, 1.6*inch, 0.9*inch, 3*inch])
         
-        # Build style with conditional coloring for CRITICAL
         table_style = [
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#374151')),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (2, 0), (2, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
+            ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb')),
+            ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
         ]
         
-        # Apply red text to CRITICAL severity cells
-        for row_idx, log in enumerate(critical_logs, start=1):
-            if log['severity'] == 'CRITICAL':
-                table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), colors.HexColor('#ef4444')))
-                table_style.append(('FONTNAME', (2, row_idx), (2, row_idx), 'Helvetica-Bold'))
-            elif log['severity'] == 'HIGH':
-                table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), colors.HexColor('#f97316')))
+        # Color severity cells
+        for row_idx, log in enumerate(last_2_logs, start=1):
+            sev_color = SEVERITY_COLORS.get(log['severity'], colors.gray)
+            table_style.append(('TEXTCOLOR', (2, row_idx), (2, row_idx), sev_color))
+            table_style.append(('FONTNAME', (2, row_idx), (2, row_idx), 'Helvetica-Bold'))
         
-        maintenance_table.setStyle(TableStyle(table_style))
-        story.append(maintenance_table)
+        maint_table.setStyle(TableStyle(table_style))
+        story.append(maint_table)
     else:
         story.append(Paragraph(
-            "<font color='#6b7280'>No high-severity maintenance events in the past 7 days.</font>",
-            normal_style
+            "<font color='#6b7280'><i>No maintenance events recorded in the past 7 days.</i></font>",
+            styles['Normal']
         ))
     
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 30))
     
-    # === FOOTER WITH AUDIT METADATA ===
+    # === FOOTER ===
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#e5e7eb')))
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
     
     footer_text = (
-        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} | "
-        f"Model Version: {report.metadata.model_version}"
+        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} | "
+        f"Model: {report.metadata.model_version} | "
+        f"Report ID: {report.report_id[:8]}"
     )
     story.append(Paragraph(footer_text, footer_style))
     story.append(Paragraph(
-        "This report is generated from persisted system data and represents the assessment at the recorded timestamp.",
+        "Executive Summary Report — For Plant Management Review",
         footer_style
     ))
     
@@ -337,100 +391,152 @@ def generate_pdf_report(report: HealthReport) -> bytes:
     return buffer.getvalue()
 
 
-def generate_excel_report(report: HealthReport) -> bytes:
+def generate_excel_report(
+    report: HealthReport,
+    sensor_history: Optional[List[Dict[str, Any]]] = None
+) -> bytes:
     """
-    Generate Excel report from persisted HealthReport.
+    Generate Multi-Sheet Excel Report for Analysts.
     
-    The "Snapshot Rule": Uses stored report data, does NOT recompute.
+    Sheets:
+    1. Summary: High-level metrics (Total Duration, Max Vibration, Total Anomalies)
+    2. Operator_Logs: Human ground truth data
+    3. Raw_Sensor_Data: Complete timeline of sensor readings
     
     Args:
-        report: Persisted HealthReport from Phase 7
+        report: Persisted HealthReport
+        sensor_history: List of sensor readings for raw data export
         
     Returns:
         Excel file as bytes
     """
     buffer = BytesIO()
     
-    # Summary data
+    # === Calculate metrics from sensor history ===
+    total_readings = len(sensor_history) if sensor_history else 0
+    total_duration_hours = total_readings / 3600 if total_readings > 0 else 0  # Assuming 1 reading/sec
+    max_vibration = 0.0
+    max_current = 0.0
+    total_anomalies = 0
+    
+    if sensor_history and len(sensor_history) > 0:
+        vibrations = [r.get('vibration_g', 0) for r in sensor_history if r.get('vibration_g') is not None]
+        max_vibration = max(vibrations) if vibrations else 0.0
+        
+        currents = [r.get('current_a', 0) for r in sensor_history if r.get('current_a') is not None]
+        max_current = max(currents) if currents else 0.0
+        
+        total_anomalies = sum(1 for r in sensor_history if r.get('is_anomaly', False))
+    
+    # === SHEET 1: SUMMARY ===
     summary_data = {
-        'Field': [
+        'Metric': [
             'Report ID',
             'Asset ID',
-            'Timestamp (UTC)',
+            'Report Generated (UTC)',
             'Health Score',
+            'Health Grade',
             'Risk Level',
             'Maintenance Window (Days)',
-            'Model Version'
+            'Model Version',
+            '---',
+            'Total Data Points',
+            'Session Duration (Hours)',
+            'Max Vibration (g)',
+            'Max Current (A)',
+            'Total Anomalies Detected',
         ],
         'Value': [
             report.report_id,
             report.asset_id,
             report.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC'),
-            report.health_score,
+            f"{report.health_score}/100",
+            get_health_grade(report.health_score)[0],  # Just the grade letter
             report.risk_level.value,
             report.maintenance_window_days,
-            report.metadata.model_version
+            report.metadata.model_version,
+            '---',
+            total_readings,
+            f"{total_duration_hours:.2f}",
+            f"{max_vibration:.4f}",
+            f"{max_current:.2f}",
+            total_anomalies,
         ]
     }
-    
-    # Explanations data
-    explanations_data = {
-        'Reason': [],
-        'Related Features': [],
-        'Confidence': []
-    }
-    
-    for exp in report.explanations:
-        explanations_data['Reason'].append(exp.reason)
-        explanations_data['Related Features'].append(', '.join(exp.related_features))
-        explanations_data['Confidence'].append(f"{exp.confidence_score:.0%}")
-    
-    # Create DataFrames
     summary_df = pd.DataFrame(summary_data)
-    explanations_df = pd.DataFrame(explanations_data) if explanations_data['Reason'] else None
     
-    # === OPERATOR LOGS WORKSHEET (Phase 5) ===
-    # Fetch maintenance logs from InfluxDB (24h window)
-    maintenance_logs = fetch_maintenance_logs_for_report(hours=24, asset_id=report.asset_id, limit=100)
+    # === SHEET 2: OPERATOR LOGS (Ground Truth) ===
+    maintenance_logs = fetch_maintenance_logs_for_report(hours=168, asset_id=report.asset_id, limit=100)
     
     operator_logs_data = {
-        'Event Time (ISO)': [],
-        'Asset ID': [],
-        'Event Type': [],
+        'Event Time': [],
+        'Type': [],
         'Severity': [],
-        'Description': [],
-        'Technician ID': []
+        'Technician Note': []
     }
     
     for log in maintenance_logs:
-        # Use event_time (the user-selected time), formatted as ISO
-        event_time = log['timestamp'].isoformat() if log['timestamp'] else ''
-        operator_logs_data['Event Time (ISO)'].append(event_time)
-        operator_logs_data['Asset ID'].append(log['asset_id'])
-        operator_logs_data['Event Type'].append(log['event_type'])
+        event_time = log['timestamp'].strftime('%Y-%m-%d %H:%M:%S') if log['timestamp'] else ''
+        operator_logs_data['Event Time'].append(event_time)
+        operator_logs_data['Type'].append(log['event_type'].replace('_', ' ').title())
         operator_logs_data['Severity'].append(log['severity'])
-        operator_logs_data['Description'].append(log['description'])
-        operator_logs_data['Technician ID'].append(log.get('technician_id', 'Operator'))
+        operator_logs_data['Technician Note'].append(log['description'])
     
     operator_logs_df = pd.DataFrame(operator_logs_data)
     
-    # Write to Excel with multiple sheets
+    # === SHEET 3: RAW SENSOR DATA ===
+    raw_sensor_data = {
+        'Timestamp': [],
+        'Vibration (g)': [],
+        'Current (A)': [],
+        'Voltage (V)': [],
+        'Power Factor': [],
+        'Anomaly_Score': [],
+        'Status': []
+    }
+    
+    if sensor_history:
+        for reading in sensor_history:
+            ts = reading.get('timestamp')
+            if isinstance(ts, datetime):
+                raw_sensor_data['Timestamp'].append(ts.strftime('%Y-%m-%d %H:%M:%S'))
+            elif isinstance(ts, str):
+                raw_sensor_data['Timestamp'].append(ts)
+            else:
+                raw_sensor_data['Timestamp'].append(str(ts) if ts else '')
+            
+            raw_sensor_data['Vibration (g)'].append(reading.get('vibration_g', ''))
+            raw_sensor_data['Current (A)'].append(reading.get('current_a', ''))
+            raw_sensor_data['Voltage (V)'].append(reading.get('voltage_v', ''))
+            raw_sensor_data['Power Factor'].append(reading.get('power_factor', ''))
+            raw_sensor_data['Anomaly_Score'].append(reading.get('anomaly_score', ''))
+            
+            is_anomaly = reading.get('is_anomaly', False)
+            raw_sensor_data['Status'].append('ANOMALY' if is_anomaly else 'NORMAL')
+    
+    raw_sensor_df = pd.DataFrame(raw_sensor_data)
+    
+    # === Write all sheets ===
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        # Sheet 1: Summary
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
+        ws_summary = writer.sheets['Summary']
+        ws_summary.column_dimensions['A'].width = 30
+        ws_summary.column_dimensions['B'].width = 40
         
-        if explanations_df is not None and not explanations_df.empty:
-            explanations_df.to_excel(writer, sheet_name='Insights', index=False)
-        
-        # Always include Operator_Logs sheet (may be empty)
+        # Sheet 2: Operator_Logs
         operator_logs_df.to_excel(writer, sheet_name='Operator_Logs', index=False)
+        ws_logs = writer.sheets['Operator_Logs']
+        ws_logs.column_dimensions['A'].width = 20
+        ws_logs.column_dimensions['B'].width = 25
+        ws_logs.column_dimensions['C'].width = 12
+        ws_logs.column_dimensions['D'].width = 50
         
-        # Auto-adjust column widths for Operator_Logs
-        worksheet = writer.sheets['Operator_Logs']
-        for idx, col in enumerate(operator_logs_df.columns):
-            max_len = max(
-                operator_logs_df[col].astype(str).map(len).max() if len(operator_logs_df) > 0 else 0,
-                len(col)
-            ) + 2
-            worksheet.column_dimensions[chr(65 + idx)].width = min(max_len, 50)
+        # Sheet 3: Raw_Sensor_Data
+        raw_sensor_df.to_excel(writer, sheet_name='Raw_Sensor_Data', index=False)
+        ws_raw = writer.sheets['Raw_Sensor_Data']
+        ws_raw.column_dimensions['A'].width = 20
+        for col in ['B', 'C', 'D', 'E', 'F', 'G']:
+            ws_raw.column_dimensions[col].width = 15
     
     return buffer.getvalue()
