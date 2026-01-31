@@ -16,7 +16,7 @@
 ║   ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝╚══════╝║
 ║                                                                                                ║
 ║                         ╔═══════════════════════════════════╗                                  ║
-║                         ║   DIGITAL TWIN SYSTEM | v2.1.0-RC ║                                  ║
+║                         ║   DIGITAL TWIN SYSTEM | v2.2.0    ║                                  ║
 ║                         ╚═══════════════════════════════════╝                                  ║
 ║                                                                                                ║
 ╚════════════════════════════════════════════════════════════════════════════════════════════════╝
@@ -29,12 +29,20 @@
 | Field | Value |
 |-------|-------|
 | **Document ID** | `PM-MANIFEST-2026-001` |
-| **Version** | `2.1.0-RC` |
-| **Status** | 🟢 **RELEASE CANDIDATE** |
+| **Version** | `2.2.0` |
+| **Status** | 🟢 **PRODUCTION** |
 | **Classification** | Internal / Portfolio |
-| **Last Updated** | 2026-01-29 |
+| **Last Updated** | 2026-01-31 |
 | **Author** | Systems Architecture Team |
 | **Review Cycle** | Quarterly |
+
+### Live Deployment
+
+| Service | URL | Status |
+|---------|-----|--------|
+| **Frontend** | https://predictive-maintenance-ten.vercel.app/ | ✅ Live |
+| **Backend API** | https://predictive-maintenance-uhlb.onrender.com | ✅ Live |
+| **API Docs** | https://predictive-maintenance-uhlb.onrender.com/docs | ✅ Live |
 
 ---
 
@@ -225,14 +233,18 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
 |-------|------------|---------|---------|
 | **Frontend** | React | 18.x | Component-based UI |
 | | Recharts | 2.x | Real-time data visualization |
+| | Vite | 5.x | Build tool & dev server |
 | | CSS Modules | - | Scoped styling (Glassmorphism) |
 | **Backend** | Python | 3.11+ | Core runtime |
 | | FastAPI | 0.100+ | Async REST API |
-| | Pydantic | 2.x | Schema validation |
+| | Pydantic | 2.x | Schema validation & settings |
 | | scikit-learn | 1.3+ | Isolation Forest ML |
 | | ReportLab | 4.x | PDF generation |
-| **Storage** | InfluxDB | 2.7+ | Time-series persistence |
-| **Deployment** | Docker Compose | 2.x | Container orchestration |
+| **Storage** | InfluxDB Cloud | 2.x | Time-series persistence |
+| **Deployment** | Docker | 24.x | Containerization |
+| | Render | - | Backend hosting |
+| | Vercel | - | Frontend hosting |
+| | InfluxDB Cloud | - | Managed database |
 
 ### System Architecture (ASCII Diagram)
 
@@ -348,16 +360,25 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
 
 ## 📞 QUICK REFERENCE
 
-### Start the System
+### Start the System (Local Development)
 
 ```bash
 # Docker (Recommended)
-docker-compose up -d
+docker-compose up --build
 
-# Local Development
-uvicorn backend.api.main:app --reload  # Terminal 1
-cd frontend && npm run dev              # Terminal 2
+# Access
+# Frontend: http://localhost:5173
+# Backend:  http://localhost:8000
+# API Docs: http://localhost:8000/docs
 ```
+
+### Production URLs
+
+| Service | URL |
+|---------|-----|
+| **Frontend** | https://predictive-maintenance-ten.vercel.app/ |
+| **Backend API** | https://predictive-maintenance-uhlb.onrender.com |
+| **API Docs** | https://predictive-maintenance-uhlb.onrender.com/docs |
 
 ### Key Endpoints
 
@@ -365,8 +386,8 @@ cd frontend && npm run dev              # Terminal 2
 |----------|--------|---------|
 | `/system/calibrate` | POST | Build baseline from healthy data |
 | `/system/inject-fault` | POST | Simulate fault (MILD/MEDIUM/SEVERE) |
-| `/integration/health/{asset}` | GET | Current health status |
-| `/integration/report/{asset}` | GET | Download PDF/Excel report |
+| `/api/v1/status/{asset}` | GET | Current health status |
+| `/api/v1/report/{asset}` | GET | Download PDF/Excel report |
 | `/sandbox/predict` | POST | What-If analysis |
 
 ---
@@ -378,7 +399,12 @@ cd frontend && npm run dev              # Terminal 2
 <p align="center">
   <strong>PREDICTIVE MAINTENANCE SYSTEM</strong><br>
   <em>Digital Twin for Industrial Asset Intelligence</em><br>
-  <code>v2.1.0-RC | January 2026</code>
+  <code>v2.2.0 | January 2026 | Production</code>
+</p>
+
+<p align="center">
+  🚀 <a href="https://predictive-maintenance-ten.vercel.app/">Live Demo</a> &nbsp;|&nbsp;
+  📄 <a href="https://predictive-maintenance-uhlb.onrender.com/docs">API Docs</a>
 </p>
 
 <p align="center">

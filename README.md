@@ -2,8 +2,10 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/FastAPI-0.100+-green?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/React-18+-blue?style=for-the-badge&logo=react&logoColor=white" alt="React">
-  <img src="https://img.shields.io/badge/InfluxDB-2.7+-purple?style=for-the-badge&logo=influxdb&logoColor=white" alt="InfluxDB">
-  <img src="https://img.shields.io/badge/Docker-Ready-blue?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/InfluxDB_Cloud-2.x-purple?style=for-the-badge&logo=influxdb&logoColor=white" alt="InfluxDB">
+  <img src="https://img.shields.io/badge/Docker-Containerized-blue?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/Vercel-Deployed-black?style=for-the-badge&logo=vercel&logoColor=white" alt="Vercel">
+  <img src="https://img.shields.io/badge/Render-Live-46E3B7?style=for-the-badge&logo=render&logoColor=white" alt="Render">
 </p>
 
 <h1 align="center">🔧 Predictive Maintenance System</h1>
@@ -14,6 +16,12 @@
 
 <p align="center">
   Real-time sensor monitoring • Isolation Forest anomaly detection • Health scoring • PDF/Excel reporting
+</p>
+
+<p align="center">
+  🚀 <strong><a href="https://predictive-maintenance-ten.vercel.app/">Live Demo</a></strong> &nbsp;|&nbsp;
+  📄 <strong><a href="https://predictive-maintenance-uhlb.onrender.com/docs">API Documentation</a></strong> &nbsp;|&nbsp;
+  ❤️ <strong><a href="https://predictive-maintenance-uhlb.onrender.com/health">Health Check</a></strong>
 </p>
 
 ---
@@ -41,15 +49,17 @@ An end-to-end **Predictive Maintenance** system that monitors industrial assets 
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                        Frontend (React)                        │
+│                   Frontend (React + Vite)                      │
+│                      🌐 Vercel                                 │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────┐  │
 │  │ Metrics  │ │  Chart   │ │  Health  │ │  Explanations    │  │
 │  │  Cards   │ │ Recharts │ │  Summary │ │     Panel        │  │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────────────┘  │
 └────────────────────────────┬───────────────────────────────────┘
-                             │ HTTP/JSON
+                             │ HTTPS/JSON (Vercel Rewrites)
 ┌────────────────────────────▼───────────────────────────────────┐
-│                     Backend (FastAPI)                          │
+│                   Backend (FastAPI + Docker)                   │
+│                      🚀 Render                                 │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐   │
 │  │   Ingest     │ │   Features   │ │    ML Pipeline       │   │
 │  │   /ingest    │ │   Engine     │ │  Baseline → Detector │   │
@@ -61,10 +71,18 @@ An end-to-end **Predictive Maintenance** system that monitors industrial assets 
 └────────────────────────────┬───────────────────────────────────┘
                              │
 ┌────────────────────────────▼───────────────────────────────────┐
-│                    InfluxDB (Time-Series)                      │
+│                 InfluxDB Cloud (Time-Series)                   │
 │              sensor_data • features • anomalies                │
 └────────────────────────────────────────────────────────────────┘
 ```
+
+### Deployment Stack
+
+| Component | Technology | Hosting | URL |
+|-----------|------------|---------|-----|
+| **Frontend** | React 18 + Vite | Vercel | [predictive-maintenance-ten.vercel.app](https://predictive-maintenance-ten.vercel.app/) |
+| **Backend** | FastAPI + Docker | Render | [predictive-maintenance-uhlb.onrender.com](https://predictive-maintenance-uhlb.onrender.com) |
+| **Database** | InfluxDB 2.x | InfluxDB Cloud | AWS us-east-1 |
 
 ---
 
@@ -77,90 +95,43 @@ An end-to-end **Predictive Maintenance** system that monitors industrial assets 
 git clone https://github.com/BhaveshBytess/PREDICTIVE-MAINTENANCE.git
 cd PREDICTIVE-MAINTENANCE
 
-# Copy environment file
-cp .env.example .env
-
-# Start all services
-docker-compose up -d
+# Start all services (backend + frontend)
+docker-compose up --build
 
 # Access the application
-# Frontend: http://localhost:3000
+# Frontend: http://localhost:5173
 # Backend:  http://localhost:8000
-# InfluxDB: http://localhost:8086
+# API Docs: http://localhost:8000/docs
 ```
 
-### Option 2: Local Development
+> ⚠️ **Windows Users**: Never commit `node_modules/` to Git. Windows binaries cause permission errors on Linux servers (Vercel Error 126).
 
-#### Step 1: Install & Configure InfluxDB
+### Option 2: Local Development (Manual)
 
+#### Backend
 ```bash
-# Download InfluxDB 2.x from https://portal.influxdata.com/downloads/
-# Or use Docker for just the database:
-docker run -d --name influxdb \
-  -p 8086:8086 \
-  -v influxdb-data:/var/lib/influxdb2 \
-  influxdb:2.7
-
-# Access InfluxDB UI at http://localhost:8086
-# Complete initial setup with these values:
-#   Username: admin
-#   Password: adminpassword123
-#   Organization: predictive-maintenance
-#   Bucket: sensor_data
-
-# After setup, create an API token:
-# 1. Go to Data → API Tokens → Generate API Token → All Access
-# 2. Copy the token for the next step
-```
-
-#### Step 2: Environment Configuration
-
-```bash
-# Copy the example environment file
-cp .env.example .env
-
-# Edit .env with your InfluxDB token (if different from default)
-# Default values work for development:
-#   INFLUXDB_HOST=localhost
-#   INFLUXDB_PORT=8086
-#   INFLUXDB_ORG=predictive-maintenance
-#   INFLUXDB_BUCKET=sensor_data
-#   INFLUXDB_TOKEN=predictive-maintenance-dev-token
-```
-
-#### Step 3: Backend Setup
-
-```bash
+cd backend
 python -m venv venv
 .\venv\Scripts\activate      # Windows
 source venv/bin/activate     # Linux/Mac
 
-pip install -r backend/requirements.txt
-
-# Verify InfluxDB connection
-python -c "from backend.storage.client import InfluxDBClient; print('✅ Connected')"
-
-# Start the backend
+pip install -r requirements.txt
 uvicorn backend.api.main:app --reload
 ```
 
-#### Step 4: Frontend Setup (separate terminal)
-
+#### Frontend (separate terminal)
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-### Option 3: Bare-Metal Linux
+### Option 3: Production Deployment
 
-```bash
-# Run setup script (creates venv, installs deps, configures systemd)
-sudo ./scripts/setup_linux.sh
-
-# Check service status
-sudo systemctl status predictive-maintenance
-```
+See [`DEPLOY.md`](DEPLOY.md) for detailed instructions on deploying to:
+- **Render** (Backend)
+- **Vercel** (Frontend)
+- **InfluxDB Cloud** (Database)
 
 ---
 
@@ -373,27 +344,29 @@ pytest tests/ --cov=backend --cov-report=html
 
 ## ⚙️ Configuration
 
-### Environment Variables
+### Environment Variables (Production)
 
+**Backend** (`backend/.env`):
 ```env
-# InfluxDB
-INFLUXDB_HOST=localhost
-INFLUXDB_PORT=8086
-INFLUXDB_ORG=predictive_maintenance
-INFLUXDB_BUCKET=sensor_data
-INFLUXDB_TOKEN=your-token-here
-
-# Frontend (browser-accessible URL)
-VITE_API_URL=http://localhost:8000
+ENVIRONMENT=production
+PORT=8000
+INFLUX_URL=https://us-east-1-1.aws.cloud2.influxdata.com
+INFLUX_TOKEN=<your-influxdb-token>
+INFLUX_ORG=<your-org-id>
+INFLUX_BUCKET=sensor_data
 ```
 
-### Docker Compose Services
+**Frontend** (Vercel Dashboard or local `.env`):
+```env
+VITE_API_URL=https://predictive-maintenance-uhlb.onrender.com
+```
+
+### Docker Compose Services (Local Development)
 
 | Service | Port | Description |
 |---------|------|-------------|
-| `influxdb` | 8086 | Time-series database |
 | `backend` | 8000 | FastAPI application |
-| `frontend` | 3000 | React dashboard (nginx) |
+| `frontend` | 5173 | React dashboard (Vite dev server) |
 
 All services have `restart: unless-stopped` for resilience.
 

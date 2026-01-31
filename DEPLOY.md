@@ -1,5 +1,7 @@
 # Deployment Guide
 
+> **Status**: ✅ **LIVE** — System is deployed and operational.
+
 ## Architecture
 
 ```
@@ -13,19 +15,19 @@
 | Component | Technology | Hosting |
 |-----------|------------|---------|
 | Frontend | React 18 + Vite | Vercel |
-| Backend | FastAPI + Uvicorn | Render |
-| Database | InfluxDB 2.x | InfluxDB Cloud |
+| Backend | FastAPI + Uvicorn + Docker | Render |
+| Database | InfluxDB 2.x | InfluxDB Cloud (AWS us-east-1) |
 
 ---
 
-## Live Links
+## 🚀 Live Links
 
-| Service | URL |
-|---------|-----|
-| **Frontend** | `https://your-app.vercel.app` *(update after deployment)* |
-| **Backend API** | https://predictive-maintenance-uhlb.onrender.com |
-| **API Docs** | https://predictive-maintenance-uhlb.onrender.com/docs |
-| **Health Check** | https://predictive-maintenance-uhlb.onrender.com/health |
+| Service | URL | Status |
+|---------|-----|--------|
+| **Frontend** | https://predictive-maintenance-ten.vercel.app/ | ✅ Live |
+| **Backend API** | https://predictive-maintenance-uhlb.onrender.com | ✅ Live |
+| **API Docs** | https://predictive-maintenance-uhlb.onrender.com/docs | ✅ Live |
+| **Health Check** | https://predictive-maintenance-uhlb.onrender.com/health | ✅ Live |
 
 ---
 
@@ -110,11 +112,89 @@ npm run dev
 
 ---
 
+## Environment Variables Reference
+
+### Backend (Render Dashboard)
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `ENVIRONMENT` | Yes | Runtime mode | `production` |
+| `PORT` | Yes | Server port | `8000` |
+| `INFLUX_URL` | Yes | InfluxDB Cloud URL | `https://us-east-1-1.aws.cloud2.influxdata.com` |
+| `INFLUX_TOKEN` | Yes | InfluxDB API token | `kg2i8Mq...` |
+| `INFLUX_ORG` | Yes | InfluxDB Organization ID | `67c4314d97304c09` |
+| `INFLUX_BUCKET` | Yes | InfluxDB bucket name | `sensor_data` |
+
+### Frontend (Vercel)
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `VITE_API_URL` | No | Backend URL (handled via rewrites) | `https://predictive-maintenance-uhlb.onrender.com` |
+
+---
+
+## Vercel Rewrites Configuration
+
+The `frontend/vercel.json` file handles API proxying:
+
+```json
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://predictive-maintenance-uhlb.onrender.com/api/:path*"
+    },
+    {
+      "source": "/system/:path*",
+      "destination": "https://predictive-maintenance-uhlb.onrender.com/system/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://predictive-maintenance-uhlb.onrender.com/health"
+    }
+  ]
+}
+```
+
+This allows the frontend to call `/api/...` and have Vercel proxy to Render automatically.
+
+---
+
 ## Monitoring
 
 - **InfluxDB Dashboard:** https://cloud2.influxdata.com
 - **Render Logs:** Render Dashboard → Service → Logs
 - **Vercel Logs:** Vercel Dashboard → Project → Functions
+
+---
+
+## ⚠️ Common Pitfalls
+
+### Windows Pitfall: node_modules in Git
+
+**Problem**: Committing `node_modules/` from Windows uploads Windows-specific binaries (`.cmd`, `.exe`). When Vercel (Linux) tries to execute these, you get:
+
+```
+Error: Command "npm run build" exited with 126
+```
+
+**Solution**:
+1. Ensure `node_modules/` is in `.gitignore`
+2. If already committed, remove with:
+   ```bash
+   git rm -r --cached frontend/node_modules
+   git commit -m "fix: remove node_modules from tracking"
+   git push
+   ```
+3. Redeploy on Vercel
+
+### Render Cold Starts
+
+Free-tier Render services spin down after 15 minutes of inactivity. First request after idle may take 30-60 seconds.
+
+### InfluxDB Token Scope
+
+Ensure your InfluxDB token has **read/write** access to the `sensor_data` bucket.
 
 ---
 
