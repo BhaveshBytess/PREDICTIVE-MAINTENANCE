@@ -6,19 +6,19 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://your-render-url.onrender.com/api/:path*"
+      "destination": "https://predictive-maintenance-uhlb.onrender.com/api/:path*"
     },
     {
       "source": "/system/:path*",
-      "destination": "https://your-render-url.onrender.com/system/:path*"
+      "destination": "https://predictive-maintenance-uhlb.onrender.com/system/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://your-render-url.onrender.com/health"
+      "destination": "https://predictive-maintenance-uhlb.onrender.com/health"
     },
     {
       "source": "/docs",
-      "destination": "https://your-render-url.onrender.com/docs"
+      "destination": "https://predictive-maintenance-uhlb.onrender.com/docs"
     }
   ],
   "headers": [
