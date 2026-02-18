@@ -512,13 +512,22 @@ async def simple_ingest(request: SimpleIngestRequest):
 )
 async def get_data_history(
     asset_id: str,
-    limit: int = Query(default=100, ge=1, le=1000)
+    limit: int = Query(default=100, ge=1, le=1000),
+    range_seconds: int = Query(default=60, ge=10, le=3600, description="Time range in seconds")
 ):
-    """Get recent sensor readings for charting."""
-    if asset_id not in _sensor_history:
-        return {"asset_id": asset_id, "data": [], "count": 0}
+    """
+    Get recent sensor readings for charting.
     
-    history = _sensor_history[asset_id][-limit:]
+    Queries InfluxDB directly for persistent, reliable data.
+    Returns data sorted oldest-first for correct chart rendering.
+    """
+    # Query InfluxDB directly (Single Source of Truth)
+    history = db.query_sensor_history(
+        asset_id=asset_id,
+        range_seconds=range_seconds,
+        limit=limit
+    )
+    
     return {
         "asset_id": asset_id,
         "data": history,

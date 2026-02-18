@@ -268,6 +268,92 @@ class InfluxWrapper:
             print(f"[DB] ❌ Unexpected query error: {e}")
             logger.error(f"Unexpected query error: {e}")
             return []
+
+    def query_sensor_history(
+        self,
+        asset_id: str,
+        range_seconds: int = 60,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Query sensor history from InfluxDB for a specific asset.
+        
+        Uses Flux pivot to combine all fields into single rows.
+        Returns data in the format expected by the frontend.
+        
+        Args:
+            asset_id: Asset identifier to filter by
+            range_seconds: How far back to query (default 60s)
+            limit: Maximum number of points to return (default 100)
+            
+        Returns:
+            List of sensor readings with timestamp, voltage_v, current_a,
+            power_factor, vibration_g, and is_faulty fields.
+        """
+        print(f"[DB] Querying sensor history for {asset_id} (last {range_seconds}s, limit {limit})")
+        
+        if self._mock_mode:
+            # Mock mode: filter mock buffer by asset_id and return formatted data
+            print(f"[DB] [MOCK] Filtering mock buffer for asset_id={asset_id}")
+            mock_results = []
+            for point in self._mock_buffer:
+                if point.get("tags", {}).get("asset_id") == asset_id:
+                    mock_results.append({
+                        "timestamp": point.get("timestamp"),
+                        "voltage_v": point.get("fields", {}).get("voltage_v", 0.0),
+                        "current_a": point.get("fields", {}).get("current_a", 0.0),
+                        "power_factor": point.get("fields", {}).get("power_factor", 0.0),
+                        "vibration_g": point.get("fields", {}).get("vibration_g", 0.0),
+                        "is_faulty": point.get("tags", {}).get("is_faulty", "false") == "true"
+                    })
+            # Return last N points, sorted by timestamp
+            mock_results = mock_results[-limit:]
+            print(f"[DB] [MOCK] Returning {len(mock_results)} mock points")
+            return mock_results
+        
+        # Build Flux query with pivot to combine fields into rows
+        flux_query = f'''
+from(bucket: "{self._bucket}")
+  |> range(start: -{range_seconds}s)
+  |> filter(fn: (r) => r["_measurement"] == "sensor_events")
+  |> filter(fn: (r) => r["asset_id"] == "{asset_id}")
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> sort(columns: ["_time"], desc: false)
+  |> limit(n: {limit})
+'''
+        
+        try:
+            query_api = self._client.query_api()
+            tables = query_api.query(flux_query, org=self._org)
+            
+            results = []
+            for table in tables:
+                for record in table.records:
+                    # Extract the is_faulty tag (stored as string "true"/"false")
+                    is_faulty_str = record.values.get("is_faulty", "false")
+                    is_faulty = is_faulty_str == "true" if isinstance(is_faulty_str, str) else bool(is_faulty_str)
+                    
+                    # Map to frontend-expected format
+                    results.append({
+                        "timestamp": record.get_time().isoformat(),
+                        "voltage_v": record.values.get("voltage_v", 0.0),
+                        "current_a": record.values.get("current_a", 0.0),
+                        "power_factor": record.values.get("power_factor", 0.0),
+                        "vibration_g": record.values.get("vibration_g", 0.0),
+                        "is_faulty": is_faulty
+                    })
+            
+            print(f"[DB] ✅ Sensor history query returned {len(results)} records")
+            return results
+            
+        except InfluxDBError as e:
+            print(f"[DB] ❌ Sensor history query FAILED: {e}")
+            logger.error(f"Sensor history query failed: {e}")
+            return []
+        except Exception as e:
+            print(f"[DB] ❌ Unexpected sensor history query error: {e}")
+            logger.error(f"Unexpected sensor history query error: {e}")
+            return []
     
     def get_mock_buffer(self) -> List[Dict[str, Any]]:
         """Get the mock write buffer (for testing/debugging)."""
