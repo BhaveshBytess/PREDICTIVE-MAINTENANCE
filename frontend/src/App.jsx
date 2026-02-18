@@ -88,29 +88,19 @@ function App() {
                     powerFactor: latest.power_factor
                 })
 
-                const chartPoints = data.map((d, i) => ({
-                    time: new Date(d.timestamp).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit'
-                    }),
+                // PHASE 1A: Preserve REAL timestamps - do NOT format or strip
+                // Pass raw ISO timestamp string directly from backend
+                const chartPoints = data.map((d) => ({
+                    timestamp: d.timestamp,  // ISO string from backend (real time)
                     value: d.vibration_g * 1000,
                     voltage: d.voltage_v,
-                    index: i
+                    is_anomaly: d.is_faulty ?? d.is_anomaly ?? false
                 }))
                 setChartData(chartPoints)
 
-                // Only show anomaly markers when risk is elevated (not LOW)
-                // This prevents showing historical faulty data when system is now healthy
-                if (health && health.risk_level !== 'LOW') {
-                    const anomalies = data
-                        .map((d, i) => d.is_faulty ? i : null)
-                        .filter(i => i !== null)
-                    setAnomalyPoints(anomalies)
-                } else {
-                    // Clear anomaly markers when system is healthy
-                    setAnomalyPoints([])
-                }
+                // PHASE 1A: anomalyPoints no longer used (anomaly flag is now per-point)
+                // Clear legacy index-based anomaly array
+                setAnomalyPoints([])
             }
         } catch (error) {
             console.error('Error fetching data:', error)
@@ -166,7 +156,7 @@ function App() {
                         <SignalChart
                             data={chartData}
                             anomalyIndices={anomalyPoints}
-                            title="Real-time Power Signature and anomalies (Last 1 hour)"
+                            title="Real-time Power Signature (Last 60 readings)"
                             refreshTrigger={logsRefreshTrigger}
                         />
                     </div>

@@ -13,25 +13,26 @@ import {
 import styles from './SignalChart.module.css'
 import { API_URL } from '../../config'
 
-// Generate mock data for demo - now using Unix timestamps for X-axis
+// Generate mock data for demo - using real ISO timestamps (no synthetic Date.now())
+// NOTE: This is only used when no real data is available
 const generateMockData = () => {
     const data = []
-    const now = Date.now()
+    // Use a fixed base time for demo consistency
+    const baseTime = new Date('2026-02-15T12:00:00Z')
 
     for (let i = 60; i >= 0; i--) {
-        const timestamp = now - i * 60000
+        const timestamp = new Date(baseTime.getTime() - i * 60000).toISOString()
         const baseValue = 15 + Math.sin(i / 5) * 3
         const noise = (Math.random() - 0.5) * 2
         const value = baseValue + noise
 
         // Add anomaly spike at certain points
-        const hasAnomaly = i === 25 || i === 40
+        const is_anomaly = i === 25 || i === 40
 
         data.push({
-            timestamp: timestamp, // Unix timestamp in ms - used as X-axis
-            time: new Date(timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-            value: hasAnomaly ? value + 8 : value,
-            anomaly: hasAnomaly
+            timestamp: timestamp, // ISO string - matches backend format
+            value: is_anomaly ? value + 8 : value,
+            is_anomaly: is_anomaly
         })
     }
 
@@ -127,6 +128,7 @@ const MaintenanceTooltip = ({ active, payload }) => {
     )
 }
 
+// PHASE 1A: anomalyIndices prop is DEPRECATED - anomalies are now per-point via is_anomaly field
 function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
     const [maintenanceLogs, setMaintenanceLogs] = useState([])
     const [logsLoading, setLogsLoading] = useState(false)
@@ -163,21 +165,21 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
     // Use mock data if no real data provided
     const chartData = data?.length > 0 ? data : generateMockData()
 
-    // Ensure all data points have Unix timestamps
-    const dataWithTimestamps = chartData.map((d, i) => {
-        // If data already has timestamp, use it; otherwise derive from fullTime or time string
-        let timestamp = d.timestamp
-        if (!timestamp && d.fullTime) {
-            timestamp = new Date(d.fullTime).getTime()
+    // PHASE 1A: Convert ISO timestamp strings to milliseconds ONCE
+    // NO synthetic time generation - use REAL timestamps only
+    const dataWithTimestamps = chartData.map((d) => {
+        // Convert ISO string timestamp to Unix milliseconds
+        const timestampMs = new Date(d.timestamp).getTime()
+        
+        // Validate timestamp - must be a valid number
+        if (isNaN(timestampMs)) {
+            console.warn('Invalid timestamp in data point:', d.timestamp)
         }
-        if (!timestamp) {
-            // Fallback: use current time minus index offset (for legacy data)
-            timestamp = Date.now() - (chartData.length - 1 - i) * 60000
-        }
+        
         return {
             ...d,
-            timestamp,
-            anomaly: anomalyIndices.includes(i) || d.anomaly
+            timestamp: timestampMs,  // Numeric for Recharts X-axis
+            anomaly: d.is_anomaly ?? false  // Use per-point anomaly flag
         }
     })
 
@@ -239,7 +241,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
                         <XAxis
                             dataKey="timestamp"
                             type="number"
-                            domain={[chartStartTime, chartEndTime]}
+                            domain={['dataMin', 'dataMax']}
                             scale="time"
                             tickFormatter={formatTimestamp}
                             stroke="#6b7280"
