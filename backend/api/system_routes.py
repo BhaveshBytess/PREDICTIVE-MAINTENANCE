@@ -373,7 +373,7 @@ def run_calibration(asset_id: str):
         _state_manager.set_state(SystemState.CALIBRATING, "Building baseline profile from 1,000 samples...")
         
         df = pd.DataFrame(burst_data)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
         df.set_index('timestamp', inplace=True)
         df['is_fault_injected'] = False
         

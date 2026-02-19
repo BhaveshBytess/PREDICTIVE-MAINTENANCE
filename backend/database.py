@@ -409,14 +409,16 @@ class InfluxWrapper:
             print(f"[DB] [MOCK] Returning {len(mock_results)} mock points")
             return mock_results
         
-        # Build Flux query with pivot to combine fields into rows
-        # NOTE: No group() needed since is_faulty is now a FIELD, not a tag
-        # All data points are in a single series (asset_id + asset_type tags only)
+        # Build Flux query with SERVER-SIDE AGGREGATION (Phase 3)
+        # Downsample 100 Hz raw data to 1 Hz using 1-second mean windows
+        # This reduces 6000 points/min to 60 points/min for UI rendering
+        # NOTE: aggregateWindow BEFORE pivot, then is_faulty becomes float (handled in Python)
         flux_query = f'''
 from(bucket: "{self._bucket}")
   |> range(start: -{range_seconds}s)
   |> filter(fn: (r) => r["_measurement"] == "sensor_events")
   |> filter(fn: (r) => r["asset_id"] == "{asset_id}")
+  |> aggregateWindow(every: 1s, fn: mean, createEmpty: false)
   |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
   |> sort(columns: ["_time"], desc: false)
   |> limit(n: {limit})
@@ -429,9 +431,16 @@ from(bucket: "{self._bucket}")
             results = []
             for table in tables:
                 for record in table.records:
-                    # is_faulty is now a FIELD (boolean), pivoted alongside other fields
-                    is_faulty_val = record.values.get("is_faulty", False)
-                    is_faulty = bool(is_faulty_val) if not isinstance(is_faulty_val, bool) else is_faulty_val
+                    # CRITICAL: is_faulty becomes FLOAT after aggregateWindow(fn: mean)
+                    # e.g., if 2/100 points are faulty, mean = 0.02
+                    # Convert back to boolean: any non-zero value = True (at least one fault in window)
+                    is_faulty_val = record.values.get("is_faulty", 0.0)
+                    if isinstance(is_faulty_val, bool):
+                        is_faulty = is_faulty_val
+                    elif isinstance(is_faulty_val, (int, float)):
+                        is_faulty = is_faulty_val > 0  # Any faulty point in window = True
+                    else:
+                        is_faulty = False
                     
                     # Map to frontend-expected format
                     results.append({

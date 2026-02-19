@@ -182,7 +182,7 @@ async def build_baseline(
     
     # Convert to DataFrame
     df = pd.DataFrame(history)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
     df.set_index('timestamp', inplace=True)
     
     # Filter to healthy data only
@@ -293,7 +293,7 @@ async def get_health_status(asset_id: str):
         from backend.features.calculator import compute_all_features
         
         df = pd.DataFrame(_sensor_history[asset_id])
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
         df.set_index('timestamp', inplace=True)
         
         if len(df) >= 10:

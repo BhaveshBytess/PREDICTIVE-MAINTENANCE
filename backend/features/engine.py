@@ -136,7 +136,7 @@ class FeatureEngine:
         
         # Set timestamp as index
         if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+            df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601', utc=True)
             df = df.set_index('timestamp')
             df = df.sort_index()  # Ensure chronological order
         
