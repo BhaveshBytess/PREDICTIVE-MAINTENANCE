@@ -226,6 +226,92 @@ class InfluxWrapper:
             logger.error(f"Unexpected write error: {e}")
             return False
     
+    def write_batch(
+        self,
+        measurement: str,
+        points: List[Dict[str, Any]]
+    ) -> bool:
+        """
+        Write a batch of data points to InfluxDB with MILLISECOND precision.
+        
+        This is designed for high-frequency ingestion (100 Hz). Each point dict
+        must contain:
+            - tags: Dict[str, str]
+            - fields: Dict[str, Any]
+            - timestamp: datetime (with distinct millisecond values)
+        
+        Args:
+            measurement: Measurement name (e.g., "sensor_events")
+            points: List of point dicts, each with tags, fields, timestamp
+            
+        Returns:
+            True if batch write succeeded, False otherwise
+        """
+        if not points:
+            print(f"[DB] write_batch called with empty list, skipping")
+            return True
+            
+        print(f"[DB] Writing batch of {len(points)} points to '{measurement}' (MS precision)")
+        
+        if self._mock_mode:
+            # Mock mode: log to console and buffer
+            for p in points:
+                mock_data = {
+                    "measurement": measurement,
+                    "tags": p.get("tags", {}),
+                    "fields": p.get("fields", {}),
+                    "timestamp": p.get("timestamp", datetime.now(timezone.utc)).isoformat(),
+                }
+                self._mock_buffer.append(mock_data)
+            
+            # Keep buffer bounded (last 1000 points)
+            if len(self._mock_buffer) > 1000:
+                self._mock_buffer = self._mock_buffer[-1000:]
+            
+            print(f"[DB] [MOCK] Batch of {len(points)} points buffered (mock mode)")
+            return True
+        
+        try:
+            # Build list of InfluxDB Points
+            influx_points = []
+            for p in points:
+                point = Point(measurement)
+                
+                for key, value in p.get("tags", {}).items():
+                    point = point.tag(key, str(value))
+                
+                for key, value in p.get("fields", {}).items():
+                    if isinstance(value, (int, float)):
+                        point = point.field(key, float(value))
+                    elif isinstance(value, bool):
+                        point = point.field(key, value)
+                    else:
+                        point = point.field(key, str(value))
+                
+                # CRITICAL: Millisecond precision for 100 Hz data
+                ts = p.get("timestamp", datetime.now(timezone.utc))
+                point = point.time(ts, WritePrecision.MS)
+                influx_points.append(point)
+            
+            # Write entire list in one API call
+            self._write_api.write(
+                bucket=self._bucket,
+                org=self._org,
+                record=influx_points
+            )
+            
+            print(f"[DB] ✅ Batch of {len(points)} points written to bucket '{self._bucket}'")
+            return True
+            
+        except InfluxDBError as e:
+            print(f"[DB] ❌ InfluxDB batch write FAILED: {e}")
+            logger.error(f"InfluxDB batch write failed: {e}")
+            return False
+        except Exception as e:
+            print(f"[DB] ❌ Unexpected batch write error: {e}")
+            logger.error(f"Unexpected batch write error: {e}")
+            return False
+    
     def query_data(self, query: str) -> List[Dict[str, Any]]:
         """
         Execute a Flux query and return results.

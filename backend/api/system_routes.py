@@ -409,52 +409,62 @@ def run_calibration(asset_id: str):
         )
         
         # Continue generating healthy monitoring data with metrics tracking
+        # Phase 2.2: 100 Hz batch ingestion - 100 points per second
         while not _state_manager.should_stop():
             if _state_manager.state != SystemState.MONITORING_HEALTHY:
                 break
             
-            reading = generate_sensor_reading(asset_id, is_faulty=False)
-            reading["timestamp"] = datetime.now(timezone.utc).isoformat()
+            # Batch: Generate 100 points with 10ms spacing
+            batch_payload = []
+            base_time = datetime.now(timezone.utc)
             
-            # Auto-detect anomaly against baseline
-            is_anomaly = False
-            if asset_id in _baselines:
-                bl = _baselines[asset_id]
-                for signal_name, value in [('voltage_v', reading['voltage_v']),
-                                           ('current_a', reading['current_a']),
-                                           ('power_factor', reading['power_factor']),
-                                           ('vibration_g', reading['vibration_g'])]:
-                    if signal_name in bl.signal_profiles:
-                        profile = bl.signal_profiles[signal_name]
-                        tolerance = (profile.max - profile.min) * 0.1
-                        if value < (profile.min - tolerance) or value > (profile.max + tolerance):
-                            is_anomaly = True
-                            break
+            for i in range(100):
+                reading = generate_sensor_reading(asset_id, is_faulty=False)
+                # Each point is 10ms apart (100 points = 1 second)
+                point_time = base_time + timedelta(milliseconds=i * 10)
+                reading["timestamp"] = point_time.isoformat()
+                
+                # Auto-detect anomaly against baseline
+                is_anomaly = False
+                if asset_id in _baselines:
+                    bl = _baselines[asset_id]
+                    for signal_name, value in [('voltage_v', reading['voltage_v']),
+                                               ('current_a', reading['current_a']),
+                                               ('power_factor', reading['power_factor']),
+                                               ('vibration_g', reading['vibration_g'])]:
+                        if signal_name in bl.signal_profiles:
+                            profile = bl.signal_profiles[signal_name]
+                            tolerance = (profile.max - profile.min) * 0.1
+                            if value < (profile.min - tolerance) or value > (profile.max + tolerance):
+                                is_anomaly = True
+                                break
+                
+                reading["is_faulty"] = is_anomaly
+                _sensor_history[asset_id].append(reading)
+                
+                # Build batch point for InfluxDB
+                batch_payload.append({
+                    "tags": {
+                        "asset_id": asset_id,
+                        "asset_type": "motor",
+                        "source": "healthy_monitoring"
+                    },
+                    "fields": {
+                        "voltage_v": reading["voltage_v"],
+                        "current_a": reading["current_a"],
+                        "power_factor": reading["power_factor"],
+                        "vibration_g": reading["vibration_g"],
+                        "is_faulty": is_anomaly,
+                    },
+                    "timestamp": point_time
+                })
+                
+                # TRACK HEALTHY STABILITY METRIC
+                _state_manager.record_healthy_classification(is_low_risk=(not is_anomaly))
             
-            reading["is_faulty"] = is_anomaly
-            _sensor_history[asset_id].append(reading)
-            
-            # Persist to InfluxDB
-            # NOTE: is_faulty is stored as FIELD (not tag) to prevent table fragmentation
-            db.write_point(
-                measurement="sensor_events",
-                tags={
-                    "asset_id": asset_id,
-                    "asset_type": "motor",
-                    "source": "healthy_monitoring"
-                },
-                fields={
-                    "voltage_v": reading["voltage_v"],
-                    "current_a": reading["current_a"],
-                    "power_factor": reading["power_factor"],
-                    "vibration_g": reading["vibration_g"],
-                    "is_faulty": is_anomaly,
-                }
-            )
-            
-            # TRACK HEALTHY STABILITY METRIC
-            # Healthy data classified as LOW risk = correct
-            _state_manager.record_healthy_classification(is_low_risk=(not is_anomaly))
+            # Write batch of 100 points in single API call
+            db.write_batch(measurement="sensor_events", points=batch_payload)
+            print(f"[SYSTEM] Batch of 100 points written to InfluxDB (healthy_monitoring)")
             
             # Keep only last 100 readings for display
             if len(_sensor_history[asset_id]) > 100:
@@ -467,65 +477,76 @@ def run_calibration(asset_id: str):
 
 
 def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSeverity):
-    """Background task: Generate faulty sensor data with metrics tracking."""
+    """Background task: Generate faulty sensor data with metrics tracking.
+    
+    Phase 2.2: 100 Hz batch ingestion - 100 points per second.
+    """
     try:
         while not _state_manager.should_stop():
             if _state_manager.state != SystemState.FAULT_INJECTION:
                 break
             
-            reading = generate_sensor_reading(
-                asset_id, 
-                is_faulty=True, 
-                fault_type=fault_type,
-                severity=severity
-            )
-            reading["timestamp"] = datetime.now(timezone.utc).isoformat()
+            # Batch: Generate 100 points with 10ms spacing
+            batch_payload = []
+            base_time = datetime.now(timezone.utc)
             
-            # Auto-detect against baseline using same tolerance as scoring (50%)
-            is_anomaly = True  # Default to True for fault injection - it SHOULD be detected
-            if asset_id in _baselines:
-                bl = _baselines[asset_id]
-                # Check if ANY signal is outside healthy range (with 50% tolerance)
-                for signal_name, value in [('voltage_v', reading['voltage_v']),
-                                           ('current_a', reading['current_a']),
-                                           ('power_factor', reading['power_factor']),
-                                           ('vibration_g', reading['vibration_g'])]:
-                    if signal_name in bl.signal_profiles:
-                        profile = bl.signal_profiles[signal_name]
-                        range_size = profile.max - profile.min
-                        tolerance = range_size * 0.5  # 50% tolerance matches scoring
-                        lower_bound = profile.min - tolerance
-                        upper_bound = profile.max + tolerance
-                        if value < lower_bound or value > upper_bound:
-                            is_anomaly = True
-                            break
+            for i in range(100):
+                reading = generate_sensor_reading(
+                    asset_id, 
+                    is_faulty=True, 
+                    fault_type=fault_type,
+                    severity=severity
+                )
+                # Each point is 10ms apart (100 points = 1 second)
+                point_time = base_time + timedelta(milliseconds=i * 10)
+                reading["timestamp"] = point_time.isoformat()
+                
+                # Auto-detect against baseline using same tolerance as scoring (50%)
+                is_anomaly = True  # Default to True for fault injection - it SHOULD be detected
+                if asset_id in _baselines:
+                    bl = _baselines[asset_id]
+                    for signal_name, value in [('voltage_v', reading['voltage_v']),
+                                               ('current_a', reading['current_a']),
+                                               ('power_factor', reading['power_factor']),
+                                               ('vibration_g', reading['vibration_g'])]:
+                        if signal_name in bl.signal_profiles:
+                            profile = bl.signal_profiles[signal_name]
+                            range_size = profile.max - profile.min
+                            tolerance = range_size * 0.5
+                            lower_bound = profile.min - tolerance
+                            upper_bound = profile.max + tolerance
+                            if value < lower_bound or value > upper_bound:
+                                is_anomaly = True
+                                break
+                
+                reading["is_faulty"] = is_anomaly
+                _sensor_history[asset_id].append(reading)
+                
+                # Build batch point for InfluxDB
+                batch_payload.append({
+                    "tags": {
+                        "asset_id": asset_id,
+                        "asset_type": "motor",
+                        "source": "fault_injection",
+                        "fault_type": fault_type.value,
+                        "severity": severity.value
+                    },
+                    "fields": {
+                        "voltage_v": reading["voltage_v"],
+                        "current_a": reading["current_a"],
+                        "power_factor": reading["power_factor"],
+                        "vibration_g": reading["vibration_g"],
+                        "is_faulty": is_anomaly,
+                    },
+                    "timestamp": point_time
+                })
+                
+                # TRACK FAULT CAPTURE RATE METRIC
+                _state_manager.record_faulty_classification(is_high_risk=is_anomaly)
             
-            reading["is_faulty"] = is_anomaly
-            _sensor_history[asset_id].append(reading)
-            
-            # Persist to InfluxDB
-            # NOTE: is_faulty is stored as FIELD (not tag) to prevent table fragmentation
-            db.write_point(
-                measurement="sensor_events",
-                tags={
-                    "asset_id": asset_id,
-                    "asset_type": "motor",
-                    "source": "fault_injection",
-                    "fault_type": fault_type.value,
-                    "severity": severity.value
-                },
-                fields={
-                    "voltage_v": reading["voltage_v"],
-                    "current_a": reading["current_a"],
-                    "power_factor": reading["power_factor"],
-                    "vibration_g": reading["vibration_g"],
-                    "is_faulty": is_anomaly,
-                }
-            )
-            
-            # TRACK FAULT CAPTURE RATE METRIC
-            # Faulty data classified as HIGH+ risk (detected as anomaly) = correct
-            _state_manager.record_faulty_classification(is_high_risk=is_anomaly)
+            # Write batch of 100 points in single API call
+            db.write_batch(measurement="sensor_events", points=batch_payload)
+            print(f"[SYSTEM] Batch of 100 points written to InfluxDB (fault_injection)")
             
             # Keep only last 100 readings for display
             if len(_sensor_history[asset_id]) > 100:
@@ -668,32 +689,61 @@ async def reset_system(
     )
     
     # Start healthy monitoring with PROPER anomaly detection (True Recovery)
+    # Phase 2.2: 100 Hz batch ingestion - 100 points per second
     def resume_healthy_monitoring():
         """Generate healthy data with proper baseline comparison for natural recovery."""
         while not _state_manager.should_stop():
             if _state_manager.state != SystemState.MONITORING_HEALTHY:
                 break
             
-            reading = generate_sensor_reading(asset_id, is_faulty=False)
-            reading["timestamp"] = datetime.now(timezone.utc).isoformat()
+            # Batch: Generate 100 points with 10ms spacing
+            batch_payload = []
+            base_time = datetime.now(timezone.utc)
             
-            # TRUE RECOVERY: Check against baseline (don't hardcode is_faulty)
-            is_anomaly = False
-            if asset_id in _baselines:
-                bl = _baselines[asset_id]
-                for signal_name, value in [('voltage_v', reading['voltage_v']),
-                                           ('current_a', reading['current_a']),
-                                           ('power_factor', reading['power_factor']),
-                                           ('vibration_g', reading['vibration_g'])]:
-                    if signal_name in bl.signal_profiles:
-                        profile = bl.signal_profiles[signal_name]
-                        tolerance = (profile.max - profile.min) * 0.1
-                        if value < (profile.min - tolerance) or value > (profile.max + tolerance):
-                            is_anomaly = True
-                            break
+            for i in range(100):
+                reading = generate_sensor_reading(asset_id, is_faulty=False)
+                # Each point is 10ms apart (100 points = 1 second)
+                point_time = base_time + timedelta(milliseconds=i * 10)
+                reading["timestamp"] = point_time.isoformat()
+                
+                # TRUE RECOVERY: Check against baseline (don't hardcode is_faulty)
+                is_anomaly = False
+                if asset_id in _baselines:
+                    bl = _baselines[asset_id]
+                    for signal_name, value in [('voltage_v', reading['voltage_v']),
+                                               ('current_a', reading['current_a']),
+                                               ('power_factor', reading['power_factor']),
+                                               ('vibration_g', reading['vibration_g'])]:
+                        if signal_name in bl.signal_profiles:
+                            profile = bl.signal_profiles[signal_name]
+                            tolerance = (profile.max - profile.min) * 0.1
+                            if value < (profile.min - tolerance) or value > (profile.max + tolerance):
+                                is_anomaly = True
+                                break
+                
+                reading["is_faulty"] = is_anomaly
+                _sensor_history[asset_id].append(reading)
+                
+                # Build batch point for InfluxDB
+                batch_payload.append({
+                    "tags": {
+                        "asset_id": asset_id,
+                        "asset_type": "motor",
+                        "source": "healthy_monitoring"
+                    },
+                    "fields": {
+                        "voltage_v": reading["voltage_v"],
+                        "current_a": reading["current_a"],
+                        "power_factor": reading["power_factor"],
+                        "vibration_g": reading["vibration_g"],
+                        "is_faulty": is_anomaly,
+                    },
+                    "timestamp": point_time
+                })
             
-            reading["is_faulty"] = is_anomaly
-            _sensor_history[asset_id].append(reading)
+            # Write batch of 100 points in single API call
+            db.write_batch(measurement="sensor_events", points=batch_payload)
+            print(f"[SYSTEM] Batch of 100 points written to InfluxDB (resume_healthy)")
             
             if len(_sensor_history[asset_id]) > 1000:
                 _sensor_history[asset_id] = _sensor_history[asset_id][-1000:]
