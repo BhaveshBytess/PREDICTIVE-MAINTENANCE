@@ -260,11 +260,12 @@ class AnomalyDetector:
             if row[all_feature_cols].isna().any():
                 continue
             
-            # Get feature vector
-            feature_vector = row[all_feature_cols].values.reshape(1, -1)
+            # Get feature vector as DataFrame with proper column names
+            # This prevents "X does not have valid feature names" warning
+            feature_df = pd.DataFrame([row[all_feature_cols].values], columns=all_feature_cols)
             
-            # Scale features
-            row_scaled = self._scaler.transform(feature_vector)
+            # Scale features (passing DataFrame preserves feature names)
+            row_scaled = self._scaler.transform(feature_df)
             
             # Get decision function value
             decision_value = self._model.decision_function(row_scaled)[0]
@@ -313,11 +314,12 @@ class AnomalyDetector:
         # Add derived features
         enhanced = self._compute_derived_features_single(features)
         
-        # Build feature vector in correct order
-        feature_vector = [enhanced[col] for col in FEATURE_COLUMNS]
+        # Build feature vector as DataFrame with proper column names
+        # This prevents "X does not have valid feature names" warning
+        feature_df = pd.DataFrame([enhanced], columns=FEATURE_COLUMNS)
         
-        # Scale and score
-        scaled = self._scaler.transform([feature_vector])
+        # Scale and score (passing DataFrame preserves feature names)
+        scaled = self._scaler.transform(feature_df)
         decision_value = self._model.decision_function(scaled)[0]
         
         return self._calibrated_score(decision_value)
