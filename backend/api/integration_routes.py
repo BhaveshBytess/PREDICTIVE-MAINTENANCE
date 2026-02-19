@@ -483,18 +483,19 @@ async def simple_ingest(request: SimpleIngestRequest):
     _sensor_history[request.asset_id].append(reading)
     
     # Persist to InfluxDB (with fallback to mock mode)
+    # NOTE: is_faulty is stored as FIELD (not tag) to prevent table fragmentation
     db.write_point(
         measurement="sensor_events",
         tags={
             "asset_id": request.asset_id,
-            "asset_type": "motor",
-            "is_faulty": str(detected_faulty).lower()
+            "asset_type": "motor"
         },
         fields={
             "voltage_v": request.voltage_v,
             "current_a": request.current_a,
             "power_factor": request.power_factor,
             "vibration_g": request.vibration_g,
+            "is_faulty": detected_faulty,
         },
         timestamp=timestamp
     )

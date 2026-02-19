@@ -298,13 +298,15 @@ class InfluxWrapper:
             mock_results = []
             for point in self._mock_buffer:
                 if point.get("tags", {}).get("asset_id") == asset_id:
+                    # is_faulty is now stored as a FIELD (boolean), not a tag
+                    is_faulty_val = point.get("fields", {}).get("is_faulty", False)
                     mock_results.append({
                         "timestamp": point.get("timestamp"),
                         "voltage_v": point.get("fields", {}).get("voltage_v", 0.0),
                         "current_a": point.get("fields", {}).get("current_a", 0.0),
                         "power_factor": point.get("fields", {}).get("power_factor", 0.0),
                         "vibration_g": point.get("fields", {}).get("vibration_g", 0.0),
-                        "is_faulty": point.get("tags", {}).get("is_faulty", "false") == "true"
+                        "is_faulty": bool(is_faulty_val) if not isinstance(is_faulty_val, bool) else is_faulty_val
                     })
             # Return last N points, sorted by timestamp
             mock_results = mock_results[-limit:]
@@ -312,15 +314,14 @@ class InfluxWrapper:
             return mock_results
         
         # Build Flux query with pivot to combine fields into rows
-        # CRITICAL: group() collapses multi-series tables (split by is_faulty tag)
-        # into a single table BEFORE sorting, preventing the "scribble" bug
+        # NOTE: No group() needed since is_faulty is now a FIELD, not a tag
+        # All data points are in a single series (asset_id + asset_type tags only)
         flux_query = f'''
 from(bucket: "{self._bucket}")
   |> range(start: -{range_seconds}s)
   |> filter(fn: (r) => r["_measurement"] == "sensor_events")
   |> filter(fn: (r) => r["asset_id"] == "{asset_id}")
   |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
-  |> group()
   |> sort(columns: ["_time"], desc: false)
   |> limit(n: {limit})
 '''
@@ -332,9 +333,9 @@ from(bucket: "{self._bucket}")
             results = []
             for table in tables:
                 for record in table.records:
-                    # Extract the is_faulty tag (stored as string "true"/"false")
-                    is_faulty_str = record.values.get("is_faulty", "false")
-                    is_faulty = is_faulty_str == "true" if isinstance(is_faulty_str, str) else bool(is_faulty_str)
+                    # is_faulty is now a FIELD (boolean), pivoted alongside other fields
+                    is_faulty_val = record.values.get("is_faulty", False)
+                    is_faulty = bool(is_faulty_val) if not isinstance(is_faulty_val, bool) else is_faulty_val
                     
                     # Map to frontend-expected format
                     results.append({
@@ -347,7 +348,6 @@ from(bucket: "{self._bucket}")
                     })
             
             # FAILSAFE: Python-side sort guarantees chronological order
-            # even if Flux grouping behaves unexpectedly
             results.sort(key=lambda x: x["timestamp"])
             
             print(f"[DB] ✅ Sensor history query returned {len(results)} records")

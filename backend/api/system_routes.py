@@ -339,13 +339,13 @@ def run_calibration(asset_id: str):
             burst_data.append(reading)
             
             # Persist to InfluxDB (every 10th sample to avoid overwhelming)
+            # NOTE: is_faulty is stored as FIELD (not tag) to prevent table fragmentation
             if i % 10 == 0:
                 db.write_point(
                     measurement="sensor_events",
                     tags={
                         "asset_id": asset_id,
                         "asset_type": "motor",
-                        "is_faulty": "false",
                         "source": "calibration"
                     },
                     fields={
@@ -353,6 +353,7 @@ def run_calibration(asset_id: str):
                         "current_a": reading["current_a"],
                         "power_factor": reading["power_factor"],
                         "vibration_g": reading["vibration_g"],
+                        "is_faulty": False,
                     },
                     timestamp=fake_time
                 )
@@ -434,12 +435,12 @@ def run_calibration(asset_id: str):
             _sensor_history[asset_id].append(reading)
             
             # Persist to InfluxDB
+            # NOTE: is_faulty is stored as FIELD (not tag) to prevent table fragmentation
             db.write_point(
                 measurement="sensor_events",
                 tags={
                     "asset_id": asset_id,
                     "asset_type": "motor",
-                    "is_faulty": str(is_anomaly).lower(),
                     "source": "healthy_monitoring"
                 },
                 fields={
@@ -447,6 +448,7 @@ def run_calibration(asset_id: str):
                     "current_a": reading["current_a"],
                     "power_factor": reading["power_factor"],
                     "vibration_g": reading["vibration_g"],
+                    "is_faulty": is_anomaly,
                 }
             )
             
@@ -502,12 +504,12 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
             _sensor_history[asset_id].append(reading)
             
             # Persist to InfluxDB
+            # NOTE: is_faulty is stored as FIELD (not tag) to prevent table fragmentation
             db.write_point(
                 measurement="sensor_events",
                 tags={
                     "asset_id": asset_id,
                     "asset_type": "motor",
-                    "is_faulty": str(is_anomaly).lower(),
                     "source": "fault_injection",
                     "fault_type": fault_type.value,
                     "severity": severity.value
@@ -517,6 +519,7 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                     "current_a": reading["current_a"],
                     "power_factor": reading["power_factor"],
                     "vibration_g": reading["vibration_g"],
+                    "is_faulty": is_anomaly,
                 }
             )
             
