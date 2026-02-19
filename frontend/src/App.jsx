@@ -29,19 +29,11 @@ const POLL_INTERVAL = 3000
 
 function App() {
     const [isLive, setIsLive] = useState(false)
-    const [metrics, setMetrics] = useState({
-        voltage: 230,
-        current: 12.1,
-        powerFactor: 0.92
-    })
-    const [healthData, setHealthData] = useState({
-        score: 75,
-        riskLevel: 'MODERATE',
-        maintenanceDays: 14
-    })
-    const [explanations, setExplanations] = useState([
-        'Risk elevated due to recent Power Factor drop combined with high current spikes.'
-    ])
+    // PHASE 1C: Industrial Realism - NO mock initial data
+    // Dashboard starts blank until real data arrives from backend
+    const [metrics, setMetrics] = useState(null)
+    const [healthData, setHealthData] = useState(null)
+    const [explanations, setExplanations] = useState([])
     const [chartData, setChartData] = useState([])
     const [anomalyPoints, setAnomalyPoints] = useState([])
     const [sampleCount, setSampleCount] = useState(0)
@@ -136,17 +128,17 @@ function App() {
                     <div className={styles.metricsGrid}>
                         <MetricCard
                             label="VOLTAGE (V)"
-                            value={metrics.voltage.toFixed(0)}
+                            value={metrics?.voltage?.toFixed(0) ?? '---'}
                             icon="⚡"
                         />
                         <MetricCard
                             label="CURRENT (A)"
-                            value={metrics.current.toFixed(1)}
+                            value={metrics?.current?.toFixed(1) ?? '---'}
                             icon="🔌"
                         />
                         <MetricCard
                             label="POWER FACTOR"
-                            value={metrics.powerFactor.toFixed(2)}
+                            value={metrics?.powerFactor?.toFixed(2) ?? '---'}
                             icon="📊"
                         />
                     </div>
@@ -166,9 +158,9 @@ function App() {
                 <div className={styles.sidebar}>
                     {/* Health and Risk Summary */}
                     <HealthSummary
-                        healthScore={healthData.score}
-                        riskLevel={healthData.riskLevel}
-                        maintenanceDays={healthData.maintenanceDays}
+                        healthScore={healthData?.score}
+                        riskLevel={healthData?.riskLevel}
+                        maintenanceDays={healthData?.maintenanceDays}
                     />
 
                     {/* Insight / Reasoning */}

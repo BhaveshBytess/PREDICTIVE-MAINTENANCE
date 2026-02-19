@@ -162,8 +162,8 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
         return () => clearInterval(interval)
     }, [refreshTrigger]) // Re-fetch when refreshTrigger changes
 
-    // Use mock data if no real data provided
-    const chartData = data?.length > 0 ? data : generateMockData()
+    // PHASE 1C: No mock data fallback - chart stays empty until real data arrives
+    const chartData = data?.length > 0 ? data : []
 
     // PHASE 1A: Convert ISO timestamp strings to milliseconds ONCE
     // NO synthetic time generation - use REAL timestamps only
@@ -210,8 +210,9 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
         .filter(Boolean) // Remove nulls
 
     // Format timestamp for X-axis tick display
+    // PHASE 1C: Include seconds for industrial-grade granularity (1 point/sec)
     const formatTimestamp = (ts) => {
-        return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+        return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     }
 
     // Log debug info

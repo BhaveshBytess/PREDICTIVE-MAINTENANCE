@@ -312,12 +312,15 @@ class InfluxWrapper:
             return mock_results
         
         # Build Flux query with pivot to combine fields into rows
+        # CRITICAL: group() collapses multi-series tables (split by is_faulty tag)
+        # into a single table BEFORE sorting, preventing the "scribble" bug
         flux_query = f'''
 from(bucket: "{self._bucket}")
   |> range(start: -{range_seconds}s)
   |> filter(fn: (r) => r["_measurement"] == "sensor_events")
   |> filter(fn: (r) => r["asset_id"] == "{asset_id}")
   |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> group()
   |> sort(columns: ["_time"], desc: false)
   |> limit(n: {limit})
 '''
@@ -342,6 +345,10 @@ from(bucket: "{self._bucket}")
                         "vibration_g": record.values.get("vibration_g", 0.0),
                         "is_faulty": is_faulty
                     })
+            
+            # FAILSAFE: Python-side sort guarantees chronological order
+            # even if Flux grouping behaves unexpectedly
+            results.sort(key=lambda x: x["timestamp"])
             
             print(f"[DB] ✅ Sensor history query returned {len(results)} records")
             return results
