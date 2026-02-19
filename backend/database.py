@@ -288,16 +288,26 @@ class InfluxWrapper:
                     else:
                         point = point.field(key, str(value))
                 
-                # CRITICAL: Millisecond precision for 100 Hz data
-                ts = p.get("timestamp", datetime.now(timezone.utc))
+                # CRITICAL: Explicit integer timestamp in milliseconds
+                # Must be int (ms since epoch), NOT datetime object
+                ts = p.get("timestamp_ms")
+                if ts is None:
+                    # Fallback: convert datetime to ms if provided
+                    dt = p.get("timestamp", datetime.now(timezone.utc))
+                    ts = int(dt.timestamp() * 1000)
                 point = point.time(ts, WritePrecision.MS)
                 influx_points.append(point)
             
-            # Write entire list in one API call
+            # DIAGNOSTIC: Print Line Protocol of first 3 points to verify distinct timestamps
+            if len(influx_points) >= 3:
+                print(f"[DEBUG] Line Protocol Sample:\n" + "\n".join([p.to_line_protocol() for p in influx_points[:3]]))
+            
+            # Write entire list in one API call with EXPLICIT precision
             self._write_api.write(
                 bucket=self._bucket,
                 org=self._org,
-                record=influx_points
+                record=influx_points,
+                write_precision=WritePrecision.MS
             )
             
             print(f"[DB] ✅ Batch of {len(points)} points written to bucket '{self._bucket}'")

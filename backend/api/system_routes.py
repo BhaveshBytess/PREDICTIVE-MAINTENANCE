@@ -410,19 +410,22 @@ def run_calibration(asset_id: str):
         
         # Continue generating healthy monitoring data with metrics tracking
         # Phase 2.2: 100 Hz batch ingestion - 100 points per second
+        # FIXED: Using explicit integer millisecond timestamps to prevent collision
         while not _state_manager.should_stop():
             if _state_manager.state != SystemState.MONITORING_HEALTHY:
                 break
             
             # Batch: Generate 100 points with 10ms spacing
+            # CRITICAL: Use integer ms since epoch, NOT datetime objects
             batch_payload = []
-            base_time = datetime.now(timezone.utc)
+            base_ms = int(time.time() * 1000)
             
             for i in range(100):
                 reading = generate_sensor_reading(asset_id, is_faulty=False)
                 # Each point is 10ms apart (100 points = 1 second)
-                point_time = base_time + timedelta(milliseconds=i * 10)
-                reading["timestamp"] = point_time.isoformat()
+                ts_ms = base_ms + (i * 10)
+                # Store ISO string for in-memory history (frontend display)
+                reading["timestamp"] = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
                 
                 # Auto-detect anomaly against baseline
                 is_anomaly = False
@@ -442,7 +445,7 @@ def run_calibration(asset_id: str):
                 reading["is_faulty"] = is_anomaly
                 _sensor_history[asset_id].append(reading)
                 
-                # Build batch point for InfluxDB
+                # Build batch point for InfluxDB with explicit integer timestamp
                 batch_payload.append({
                     "tags": {
                         "asset_id": asset_id,
@@ -456,7 +459,7 @@ def run_calibration(asset_id: str):
                         "vibration_g": reading["vibration_g"],
                         "is_faulty": is_anomaly,
                     },
-                    "timestamp": point_time
+                    "timestamp_ms": ts_ms  # Explicit integer ms since epoch
                 })
                 
                 # TRACK HEALTHY STABILITY METRIC
@@ -480,6 +483,7 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
     """Background task: Generate faulty sensor data with metrics tracking.
     
     Phase 2.2: 100 Hz batch ingestion - 100 points per second.
+    FIXED: Using explicit integer millisecond timestamps to prevent collision.
     """
     try:
         while not _state_manager.should_stop():
@@ -487,8 +491,9 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                 break
             
             # Batch: Generate 100 points with 10ms spacing
+            # CRITICAL: Use integer ms since epoch, NOT datetime objects
             batch_payload = []
-            base_time = datetime.now(timezone.utc)
+            base_ms = int(time.time() * 1000)
             
             for i in range(100):
                 reading = generate_sensor_reading(
@@ -498,8 +503,9 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                     severity=severity
                 )
                 # Each point is 10ms apart (100 points = 1 second)
-                point_time = base_time + timedelta(milliseconds=i * 10)
-                reading["timestamp"] = point_time.isoformat()
+                ts_ms = base_ms + (i * 10)
+                # Store ISO string for in-memory history (frontend display)
+                reading["timestamp"] = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
                 
                 # Auto-detect against baseline using same tolerance as scoring (50%)
                 is_anomaly = True  # Default to True for fault injection - it SHOULD be detected
@@ -522,7 +528,7 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                 reading["is_faulty"] = is_anomaly
                 _sensor_history[asset_id].append(reading)
                 
-                # Build batch point for InfluxDB
+                # Build batch point for InfluxDB with explicit integer timestamp
                 batch_payload.append({
                     "tags": {
                         "asset_id": asset_id,
@@ -538,7 +544,7 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                         "vibration_g": reading["vibration_g"],
                         "is_faulty": is_anomaly,
                     },
-                    "timestamp": point_time
+                    "timestamp_ms": ts_ms  # Explicit integer ms since epoch
                 })
                 
                 # TRACK FAULT CAPTURE RATE METRIC
@@ -690,6 +696,7 @@ async def reset_system(
     
     # Start healthy monitoring with PROPER anomaly detection (True Recovery)
     # Phase 2.2: 100 Hz batch ingestion - 100 points per second
+    # FIXED: Using explicit integer millisecond timestamps to prevent collision
     def resume_healthy_monitoring():
         """Generate healthy data with proper baseline comparison for natural recovery."""
         while not _state_manager.should_stop():
@@ -697,14 +704,16 @@ async def reset_system(
                 break
             
             # Batch: Generate 100 points with 10ms spacing
+            # CRITICAL: Use integer ms since epoch, NOT datetime objects
             batch_payload = []
-            base_time = datetime.now(timezone.utc)
+            base_ms = int(time.time() * 1000)
             
             for i in range(100):
                 reading = generate_sensor_reading(asset_id, is_faulty=False)
                 # Each point is 10ms apart (100 points = 1 second)
-                point_time = base_time + timedelta(milliseconds=i * 10)
-                reading["timestamp"] = point_time.isoformat()
+                ts_ms = base_ms + (i * 10)
+                # Store ISO string for in-memory history (frontend display)
+                reading["timestamp"] = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
                 
                 # TRUE RECOVERY: Check against baseline (don't hardcode is_faulty)
                 is_anomaly = False
@@ -724,7 +733,7 @@ async def reset_system(
                 reading["is_faulty"] = is_anomaly
                 _sensor_history[asset_id].append(reading)
                 
-                # Build batch point for InfluxDB
+                # Build batch point for InfluxDB with explicit integer timestamp
                 batch_payload.append({
                     "tags": {
                         "asset_id": asset_id,
@@ -738,7 +747,7 @@ async def reset_system(
                         "vibration_g": reading["vibration_g"],
                         "is_faulty": is_anomaly,
                     },
-                    "timestamp": point_time
+                    "timestamp_ms": ts_ms  # Explicit integer ms since epoch
                 })
             
             # Write batch of 100 points in single API call
