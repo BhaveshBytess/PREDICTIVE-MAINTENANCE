@@ -7,7 +7,7 @@ All functions are read-only - no self-healing or adaptive baselines.
 
 from typing import Dict, List, Tuple
 
-import pandas as pd
+# pandas lazy-loaded to speed up cold start
 
 from .baseline import BaselineProfile, SignalProfile
 
@@ -95,7 +95,7 @@ def validate_baseline(profile: BaselineProfile) -> List[str]:
 
 
 def check_data_against_baseline(
-    data: pd.DataFrame,
+    data,
     profile: BaselineProfile,
     sigma_multiplier: float = 3.0
 ) -> ValidationResult:

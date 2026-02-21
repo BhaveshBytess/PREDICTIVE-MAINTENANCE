@@ -76,3 +76,9 @@ async def root():
         "docs": "/docs",
         "health": "/health"
     }
+
+
+@app.get("/ping", tags=["Health"])
+async def ping():
+    """Lightweight heartbeat — no DB, no ML. Used by keep-alive pings."""
+    return {"status": "ok"}

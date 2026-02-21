@@ -15,8 +15,9 @@ import json
 from fastapi import APIRouter, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-import pandas as pd
 from io import BytesIO
+
+# pandas is lazy-loaded inside functions to keep cold-start fast
 
 from backend.ml.baseline import BaselineBuilder, BaselineProfile, save_baseline, load_baseline
 from backend.ml.detector import AnomalyDetector
@@ -182,6 +183,7 @@ async def build_baseline(
     history = _sensor_history[asset_id]
     
     # Convert to DataFrame
+    import pandas as pd
     df = pd.DataFrame(history)
     df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
     df.set_index('timestamp', inplace=True)
@@ -215,6 +217,7 @@ async def build_baseline(
             feature_data.append(f)
         
         if feature_data:
+            import pandas as pd
             feature_df = pd.DataFrame(feature_data)
             feature_cols = ['voltage_rolling_mean_1h', 'current_spike_count', 
                             'power_factor_efficiency_score', 'vibration_intensity_rms']
@@ -293,6 +296,7 @@ async def get_health_status(asset_id: str):
         # Compute features from current readings
         from backend.features.calculator import compute_all_features
         
+        import pandas as pd
         df = pd.DataFrame(_sensor_history[asset_id])
         df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
         df.set_index('timestamp', inplace=True)

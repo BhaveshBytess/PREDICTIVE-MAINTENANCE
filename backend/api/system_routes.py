@@ -25,7 +25,8 @@ from backend.api.integration_routes import (
 from backend.database import db
 from backend.ml.batch_features import extract_batch_features, extract_multi_window_features
 from backend.ml.batch_detector import BatchAnomalyDetector
-import pandas as pd
+
+# pandas is lazy-loaded inside functions to keep cold-start fast
 
 # Batch detector storage (one per asset)
 _batch_detectors: Dict[str, BatchAnomalyDetector] = {}
@@ -398,6 +399,7 @@ def run_calibration(asset_id: str):
         # Phase 2: Build baseline from burst data
         _state_manager.set_state(SystemState.CALIBRATING, "Building baseline profile from 1,000 samples...")
         
+        import pandas as pd
         df = pd.DataFrame(burst_data)
         df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
         df.set_index('timestamp', inplace=True)
@@ -423,6 +425,7 @@ def run_calibration(asset_id: str):
                 feature_data.append({col: features[col] for col in feature_cols})
         
         if len(feature_data) >= 10:
+            import pandas as pd
             feature_df = pd.DataFrame(feature_data)
             detector = AnomalyDetector(asset_id=asset_id, contamination=0.05)
             detector.train(feature_df)

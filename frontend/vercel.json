@@ -17,6 +17,10 @@
       "destination": "https://predictive-maintenance-uhlb.onrender.com/health"
     },
     {
+      "source": "/ping",
+      "destination": "https://predictive-maintenance-uhlb.onrender.com/ping"
+    },
+    {
       "source": "/docs",
       "destination": "https://predictive-maintenance-uhlb.onrender.com/docs"
     }

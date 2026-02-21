@@ -23,11 +23,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
-import numpy as np
-import pandas as pd
-from sklearn.ensemble import IsolationForest
-from sklearn.preprocessing import StandardScaler
+# Heavy imports (sklearn, numpy, pandas) are lazy-loaded inside methods
+# to keep Render cold-start under 10 seconds.
 from pydantic import BaseModel, Field
+
+
+def _import_numpy():
+    import numpy as np
+    return np
+
+
+def _import_pandas():
+    import pandas as pd
+    return pd
+
+
+def _import_sklearn():
+    from sklearn.ensemble import IsolationForest
+    from sklearn.preprocessing import StandardScaler
+    return IsolationForest, StandardScaler
 
 
 # Original feature columns from Phase 4
@@ -101,8 +115,8 @@ class AnomalyDetector:
         self.n_estimators = n_estimators
         self.random_state = random_state
         
-        self._model: Optional[IsolationForest] = None
-        self._scaler: Optional[StandardScaler] = None
+        self._model = None  # IsolationForest (lazy-loaded)
+        self._scaler = None  # StandardScaler (lazy-loaded)
         self._is_trained = False
         self._training_timestamp: Optional[datetime] = None
         self._training_sample_count: int = 0
@@ -115,7 +129,7 @@ class AnomalyDetector:
         """Check if model has been trained."""
         return self._is_trained
     
-    def _compute_derived_features(self, data: pd.DataFrame) -> pd.DataFrame:
+    def _compute_derived_features(self, data):
         """
         Compute derived features from base features.
         
@@ -171,7 +185,7 @@ class AnomalyDetector:
         
         return result
     
-    def train(self, data: pd.DataFrame) -> None:
+    def train(self, data) -> None:
         """
         Train the model on HEALTHY data only.
         
@@ -181,6 +195,10 @@ class AnomalyDetector:
         Raises:
             ValueError: If data is empty or missing required features
         """
+        np = _import_numpy()
+        pd = _import_pandas()
+        IsolationForest, StandardScaler = _import_sklearn()
+
         # Validate data
         if data.empty:
             raise ValueError("Cannot train on empty data")
@@ -204,11 +222,11 @@ class AnomalyDetector:
         all_feature_cols = [col for col in FEATURE_COLUMNS if col in features_clean.columns]
         feature_matrix = features_clean[all_feature_cols]
         
-        # Scale ALL features (Phase 1: StandardScaler)
+        # Scale ALL features (Phase 1: StandardScaler, lazy-loaded)
         self._scaler = StandardScaler()
         features_scaled = self._scaler.fit_transform(feature_matrix)
         
-        # Train Isolation Forest
+        # Train Isolation Forest (lazy-loaded)
         self._model = IsolationForest(
             contamination=self.contamination,
             n_estimators=self.n_estimators,
@@ -230,7 +248,7 @@ class AnomalyDetector:
         self._training_timestamp = datetime.now(timezone.utc)
         self._training_sample_count = features_clean.shape[0]
     
-    def score(self, data: pd.DataFrame) -> List[AnomalyScore]:
+    def score(self, data) -> List[AnomalyScore]:
         """
         Score data for anomalies.
         
@@ -243,6 +261,8 @@ class AnomalyDetector:
         Raises:
             RuntimeError: If model not trained
         """
+        pd = _import_pandas()
+
         if not self._is_trained:
             raise RuntimeError("Model not trained. Call train() first.")
         
@@ -303,6 +323,9 @@ class AnomalyDetector:
         if not self._is_trained:
             raise RuntimeError("Model not trained. Call train() first.")
         
+        np = _import_numpy()
+        pd = _import_pandas()
+
         # Validate base features are present
         for col in BASE_FEATURE_COLUMNS:
             if col not in features:
@@ -324,7 +347,7 @@ class AnomalyDetector:
         
         return self._calibrated_score(decision_value)
     
-    def _extract_base_features(self, data: pd.DataFrame) -> pd.DataFrame:
+    def _extract_base_features(self, data):
         """Extract base feature columns from data (without derived)."""
         available = [col for col in BASE_FEATURE_COLUMNS if col in data.columns]
         
@@ -356,6 +379,7 @@ class AnomalyDetector:
         - Healthy data (< threshold) maps to < 0.67
         - Anomalies (> threshold) map to > 0.67
         """
+        np = _import_numpy()
         # Invert decision value (higher decision = more normal, so negate)
         raw_score = -decision_value
         

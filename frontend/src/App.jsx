@@ -34,6 +34,7 @@ import { fetchHealthStatus, fetchDataHistory, getReportUrl, buildBaseline, check
 
 const ASSET_ID = 'Motor-01'
 const POLL_INTERVAL = 3000
+const KEEPALIVE_INTERVAL = 10 * 60 * 1000  // 10 minutes — prevents Render Free Tier sleep
 
 function App() {
     const [isLive, setIsLive] = useState(false)
@@ -138,6 +139,14 @@ function App() {
         const interval = setInterval(fetchData, POLL_INTERVAL)
         return () => clearInterval(interval)
     }, [fetchData])
+
+    // Keep-alive: ping backend every 10 min to prevent Render Free Tier sleep
+    useEffect(() => {
+        const ping = () => fetch('/ping').catch(() => {})
+        ping()  // immediate first ping
+        const keepAlive = setInterval(ping, KEEPALIVE_INTERVAL)
+        return () => clearInterval(keepAlive)
+    }, [])
 
     const handleDownloadReport = (format) => {
         window.open(getReportUrl(ASSET_ID, format), '_blank')

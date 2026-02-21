@@ -28,20 +28,40 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-import joblib
-import numpy as np
-import pandas as pd
-from sklearn.ensemble import IsolationForest
-from sklearn.preprocessing import StandardScaler
-
-from .batch_features import (
-    BATCH_FEATURE_NAMES,
-    BATCH_FEATURE_COUNT,
-    extract_batch_features,
-)
+# Heavy imports (sklearn, numpy, pandas, joblib) are lazy-loaded inside
+# methods to keep Render cold-start under 10 seconds.
 
 logger = logging.getLogger(__name__)
 
+
+def _import_numpy():
+    import numpy as np
+    return np
+
+
+def _import_pandas():
+    import pandas as pd
+    return pd
+
+
+def _import_sklearn():
+    from sklearn.ensemble import IsolationForest
+    from sklearn.preprocessing import StandardScaler
+    return IsolationForest, StandardScaler
+
+
+def _import_joblib():
+    import joblib
+    return joblib
+
+
+def _import_batch_features():
+    from .batch_features import (
+        BATCH_FEATURE_NAMES,
+        BATCH_FEATURE_COUNT,
+        extract_batch_features,
+    )
+    return BATCH_FEATURE_NAMES, BATCH_FEATURE_COUNT, extract_batch_features
 
 # Hyperparameters
 DEFAULT_CONTAMINATION = 0.05
@@ -70,8 +90,8 @@ class BatchAnomalyDetector:
         self.n_estimators = n_estimators
         self.random_state = random_state
 
-        self._model: Optional[IsolationForest] = None
-        self._scaler: Optional[StandardScaler] = None
+        self._model = None  # IsolationForest (lazy-loaded)
+        self._scaler = None  # StandardScaler (lazy-loaded)
         self._is_trained: bool = False
         self._training_timestamp: Optional[datetime] = None
         self._training_sample_count: int = 0
@@ -99,6 +119,11 @@ class BatchAnomalyDetector:
         Raises:
             ValueError: If insufficient data or missing features.
         """
+        np = _import_numpy()
+        pd = _import_pandas()
+        IsolationForest, StandardScaler = _import_sklearn()
+        BATCH_FEATURE_NAMES, _, _ = _import_batch_features()
+
         if len(feature_rows) < 10:
             raise ValueError(
                 f"Need >= 10 training windows, got {len(feature_rows)}"
@@ -126,11 +151,11 @@ class BatchAnomalyDetector:
             col: float(feature_matrix[col].std()) for col in BATCH_FEATURE_NAMES
         }
 
-        # Fit scaler
+        # Fit scaler (lazy-loaded)
         self._scaler = StandardScaler()
         scaled = self._scaler.fit_transform(feature_matrix)
 
-        # Fit Isolation Forest
+        # Fit Isolation Forest (lazy-loaded)
         self._model = IsolationForest(
             contamination=self.contamination,
             n_estimators=self.n_estimators,
@@ -166,6 +191,9 @@ class BatchAnomalyDetector:
         Returns:
             Calibrated anomaly score in [0.0, 1.0].
         """
+        np = _import_numpy()
+        BATCH_FEATURE_NAMES, _, _ = _import_batch_features()
+
         if not self._is_trained:
             raise RuntimeError("Model not trained.")
 
@@ -199,6 +227,7 @@ class BatchAnomalyDetector:
         Returns:
             Calibrated anomaly score, or 0.0 if extraction fails.
         """
+        _, _, extract_batch_features = _import_batch_features()
         feats = extract_batch_features(raw_points)
         if feats is None:
             return 0.0
@@ -218,6 +247,7 @@ class BatchAnomalyDetector:
         if self._healthy_means is None or self._healthy_stds is None:
             return []
 
+        BATCH_FEATURE_NAMES, _, _ = _import_batch_features()
         contributions = []
         for name in BATCH_FEATURE_NAMES:
             val = features.get(name, 0.0)
@@ -299,6 +329,7 @@ class BatchAnomalyDetector:
 
     def _calibrated_score(self, decision_value: float) -> float:
         """Convert IsolationForest decision_function to [0, 1] anomaly score."""
+        np = _import_numpy()
         raw = -decision_value
         factor = self._threshold_score * 1.5
         if factor > 0:
@@ -334,6 +365,7 @@ class BatchAnomalyDetector:
             "healthy_stds": self._healthy_stds,
             "version": 3,  # v3 = batch features
         }
+        joblib = _import_joblib()
         joblib.dump(data, filepath)
         logger.info(f"[BatchDetector] Saved to {filepath}")
         return filepath
@@ -341,6 +373,7 @@ class BatchAnomalyDetector:
     @classmethod
     def load(cls, filepath: str) -> "BatchAnomalyDetector":
         """Load a saved batch detector."""
+        joblib = _import_joblib()
         data = joblib.load(filepath)
         det = cls(
             asset_id=data["asset_id"],

@@ -22,7 +22,8 @@ Performance:
 """
 
 from typing import Dict, List, Optional, Any
-import numpy as np
+
+# numpy is lazy-loaded inside functions to speed up cold start
 
 
 # Signals we extract batch features from
@@ -64,6 +65,7 @@ def extract_batch_features(raw_points: List[Dict[str, Any]]) -> Optional[Dict[st
     if not raw_points or len(raw_points) < 10:
         return None
 
+    import numpy as np
     features: Dict[str, float] = {}
 
     for signal in SIGNAL_COLUMNS:
@@ -103,6 +105,7 @@ def extract_batch_features_array(raw_points: List[Dict[str, Any]]) -> Optional[n
     feat_dict = extract_batch_features(raw_points)
     if feat_dict is None:
         return None
+    import numpy as np
     return np.array([feat_dict[name] for name in BATCH_FEATURE_NAMES], dtype=np.float64)
 
 

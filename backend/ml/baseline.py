@@ -17,8 +17,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from uuid import uuid4
 
-import numpy as np
-import pandas as pd
+# numpy and pandas are lazy-loaded inside methods to speed up cold start
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -105,7 +104,7 @@ class BaselineBuilder:
     
     def build(
         self,
-        data: pd.DataFrame,
+        data,
         asset_id: str,
         training_window: Optional[tuple] = None
     ) -> BaselineProfile:
@@ -131,8 +130,10 @@ class BaselineBuilder:
             start, end = training_window
             if 'timestamp' in data.columns:
                 data = data[(data['timestamp'] >= start) & (data['timestamp'] <= end)]
-            elif data.index.name == 'timestamp' or isinstance(data.index, pd.DatetimeIndex):
-                data = data[(data.index >= start) & (data.index <= end)]
+            elif data.index.name == 'timestamp':
+                import pandas as pd
+                if isinstance(data.index, pd.DatetimeIndex):
+                    data = data[(data.index >= start) & (data.index <= end)]
         
         # Filter to HEALTHY data only (is_fault_injected == False)
         data = self._filter_healthy_data(data)
@@ -183,7 +184,7 @@ class BaselineBuilder:
             feature_profiles=feature_profiles
         )
     
-    def _filter_healthy_data(self, data: pd.DataFrame) -> pd.DataFrame:
+    def _filter_healthy_data(self, data):
         """
         Filter to healthy data only (is_fault_injected == False).
         
@@ -193,8 +194,9 @@ class BaselineBuilder:
             return data[data['is_fault_injected'] == False].copy()
         return data.copy()
     
-    def _get_time_range(self, data: pd.DataFrame) -> tuple:
+    def _get_time_range(self, data) -> tuple:
         """Get start and end timestamps from data."""
+        import pandas as pd
         if isinstance(data.index, pd.DatetimeIndex):
             return data.index.min(), data.index.max()
         elif 'timestamp' in data.columns:
@@ -206,7 +208,7 @@ class BaselineBuilder:
     
     def _compute_profile(
         self,
-        data: pd.DataFrame,
+        data,
         column: str
     ) -> Optional[SignalProfile]:
         """
