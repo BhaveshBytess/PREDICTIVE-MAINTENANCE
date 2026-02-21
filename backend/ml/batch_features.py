@@ -20,6 +20,7 @@ Performance:
     All operations use NumPy vectorized math. Extracting 16 features from
     a 100-point batch takes < 0.1ms — well within the 60 FPS budget.
 """
+from __future__ import annotations
 
 from typing import Dict, List, Optional, Any
 

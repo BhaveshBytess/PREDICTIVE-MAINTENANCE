@@ -22,6 +22,7 @@ Training contract:
     - One model per asset.
     - Deterministic (random_state=42).
 """
+from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone

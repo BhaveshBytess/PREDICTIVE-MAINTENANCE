@@ -10,6 +10,7 @@ Constraints:
 - Fails if feature coverage < 80%
 - min/max are descriptive (what happened), not prescriptive
 """
+from __future__ import annotations
 
 import json
 from datetime import datetime, timezone

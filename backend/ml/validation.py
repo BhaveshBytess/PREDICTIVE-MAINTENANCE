@@ -4,6 +4,7 @@ Baseline Validation — Read-Only Verification Against Profiles
 Validates that data fits within the baseline profile using 3-Sigma Rule.
 All functions are read-only - no self-healing or adaptive baselines.
 """
+from __future__ import annotations
 
 from typing import Dict, List, Tuple
 

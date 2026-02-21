@@ -17,8 +17,8 @@ V2 Enhancements:
 - Quantile-based score calibration
 - Improved separation between healthy and faulty data
 """
+from __future__ import annotations
 
-import joblib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -428,6 +428,7 @@ class AnomalyDetector:
             'version': 2,  # Model version
         }
         
+        import joblib
         joblib.dump(model_data, filepath)
         
         return filepath
@@ -443,6 +444,7 @@ class AnomalyDetector:
         Returns:
             Loaded AnomalyDetector instance
         """
+        import joblib
         model_data = joblib.load(filepath)
         
         detector = cls(
