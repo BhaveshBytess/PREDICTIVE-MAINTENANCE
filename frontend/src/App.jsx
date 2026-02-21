@@ -195,24 +195,24 @@ function App() {
                         />
                     </div>
 
-                    {/* Chart + LogWatcher — 60/40 side-by-side */}
-                    <div className={styles.chartLogRow}>
-                        <div className={styles.chartSection}>
-                            <SignalChart
-                                data={chartData}
-                                anomalyIndices={anomalyPoints}
-                                title="Real-time Power Signature (Last 60 readings)"
-                                refreshTrigger={logsRefreshTrigger}
-                                selectedTimestamp={selectedTimestamp}
-                            />
-                        </div>
-                        <div className={styles.logSection}>
-                            <LogWatcher
-                                events={eventLog}
-                                selectedTimestamp={selectedTimestamp}
-                                onSelectEvent={setSelectedTimestamp}
-                            />
-                        </div>
+                    {/* Chart — Full-width, fixed 450px */}
+                    <div className={styles.chartSection}>
+                        <SignalChart
+                            data={chartData}
+                            anomalyIndices={anomalyPoints}
+                            title="Real-time Power Signature (Last 60 readings)"
+                            refreshTrigger={logsRefreshTrigger}
+                            selectedTimestamp={selectedTimestamp}
+                        />
+                    </div>
+
+                    {/* Log Watcher — Full-width below chart */}
+                    <div className={styles.logWatcherSection}>
+                        <LogWatcher
+                            events={eventLog}
+                            selectedTimestamp={selectedTimestamp}
+                            onSelectEvent={setSelectedTimestamp}
+                        />
                     </div>
                 </div>
 

@@ -224,7 +224,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
             <h3 className={styles.title}>{title}</h3>
 
             <div className={styles.chartWrapper}>
-                <ResponsiveContainer width="100%" height={350}>
+                <ResponsiveContainer width="100%" height={450}>
                     <LineChart data={dataWithTimestamps} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
                         <defs>
                             <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
@@ -249,6 +249,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                             tick={{ fill: '#9ca3af', fontSize: 10 }}
                             tickLine={false}
                             interval="preserveStartEnd"
+                            animationDuration={0}
                         />
 
                         <YAxis
@@ -257,6 +258,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                             tickLine={false}
                             axisLine={false}
                             domain={['auto', 'auto']}
+                            animationDuration={0}
                         />
 
                         <Tooltip
@@ -284,6 +286,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                                 stroke="#ef4444"
                                 strokeOpacity={0.5}
                                 strokeWidth={1}
+                                isAnimationActive={false}
                             />
                         ))}
 
@@ -295,6 +298,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                                 stroke={marker.color}
                                 strokeWidth={2}
                                 strokeDasharray="4 4"
+                                isAnimationActive={false}
                                 label={{
                                     value: '🔧',
                                     position: 'top',
@@ -311,6 +315,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                                 stroke="#fbbf24"
                                 strokeWidth={2}
                                 strokeDasharray="6 3"
+                                isAnimationActive={false}
                                 label={{
                                     value: '📌 Event',
                                     position: 'insideTopRight',
@@ -327,6 +332,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                             stroke="url(#lineGradient)"
                             strokeWidth={2}
                             dot={false}
+                            isAnimationActive={false}
                             activeDot={{
                                 r: 6,
                                 fill: '#3b82f6',
