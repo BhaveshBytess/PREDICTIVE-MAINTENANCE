@@ -29,7 +29,7 @@
 | Field | Value |
 |-------|-------|
 | **Document ID** | `PM-MANIFEST-2026-001` |
-| **Version** | `3.0.0` |
+| **Version** | `3.1.0` |
 | **Status** | 🟢 **PRODUCTION** |
 | **Classification** | Internal / Portfolio |
 | **Last Updated** | 2026-02-21 |

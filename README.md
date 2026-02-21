@@ -300,7 +300,8 @@ else:                   risk = LOW
 **Core Features:**
 - 🟢 **STATUS: LIVE** badge with real-time connection indicator
 - 📊 **Real-time Power Signature chart** with Recharts
-- 🔴 **Red dashed vertical lines** with ⚠️ emoji for anomaly markers
+- � **Multi-signal streaming chart** — Voltage (V), Current (A), Vibration (g) with fixed Y-axis domains and 60s right-anchored sliding window
+- 🔴 **Red shaded regions** for anomaly spans (noise-suppressed: majority-rules aggregation)
 - 🎯 **Health Score ring** (0-100) with color coding:
   - Green (75-100): LOW risk
   - Yellow/Orange (50-74): MODERATE risk
@@ -434,6 +435,8 @@ Key architectural decisions are documented in [`ENGINEERING_LOG.md`](ENGINEERING
 - **Phase 13**: Operator Log feature with InfluxDB persistence; role-specialized reports
 - **Phase 14**: 100Hz high-frequency pipeline with server-side aggregation; event engine state machine
 - **Phase 15**: Batch ML retraining — 16-D features from 100Hz windows; JITTER fault type; F1=99.6%
+- **Phase 16**: Temporal anchoring — 60s right-anchored sliding window, fixed Y-axis domains, multi-signal chart
+- **Phase 17**: Noise suppression — 25% tolerance, majority-rules aggregation (≥15/100), 2s event debounce
 - **Scoring**: Batch-feature inference (primary) with legacy model fallback
 
 ---

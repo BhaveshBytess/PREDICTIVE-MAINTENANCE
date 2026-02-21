@@ -444,3 +444,31 @@
 * **Key Learning:** Explainability must evolve with the model. When you change what the model detects, you must change how it explains.
 
 ---
+
+## [Phase 16] - Temporal Anchoring & Axis Stability
+
+* **Context:** Chart line "floated" in the air on startup and auto-scaled Y-axis made normal sensor noise look like major anomalies.
+* **The Hurdle:** XAxis domain was `[dataMin, dataMax]` — grew from 0 to N instead of anchoring to a fixed 60s window. Single Y-axis with `auto` domain meant vibration (0.15g) and voltage (230V) competed for the same scale.
+* **The Solution:**
+  - Hard-coded XAxis domain to `[Date.now() - 60000, Date.now()]` — right-anchored 60s sliding window
+  - Split into 3 fixed-domain Y-axes: Voltage [0, 300], Current [0, 40] (hidden), Vibration [0, 2.0]
+  - Conditional rendering: lines only appear when ≥ 2 data points exist (`connectNulls=false`)
+  - Injected `SYSTEM_INIT` info event into LogWatcher on first telemetry arrival
+* **Key Learning:** Fixed axis domains are essential for streaming dashboards. Auto-scaling creates visual noise that operators misinterpret as anomalies.
+
+---
+
+## [Phase 17] - Noise Suppression (False-Positive Elimination)
+
+* **Context:** Thin red anomaly strips appeared on the chart during healthy monitoring mode — no faults injected.
+* **The Hurdle:** Three layers of sensitivity compounded:
+  1. Fallback range-check used 10% tolerance — Gaussian noise tails occasionally breached it
+  2. `aggregateWindow(fn: mean)` on `is_faulty` produced floats; `> 0` threshold meant a single anomalous point in 100 flagged the entire second
+  3. EventEngine fired ANOMALY_DETECTED on any single-tick transition
+* **The Solution:**
+  - Widened fallback tolerance from 10% → 25% (3 sites: `system_routes.py` ×2, `integration_routes.py` ×1)
+  - "Majority Rules" aggregation: `is_faulty_val >= 0.15` (≥15/100 points required) in `database.py`
+  - 2-second debounce in `EventEngine`: consecutive faulty/healthy counters must reach 2 before transition fires
+* **Key Learning:** Noise suppression is a multi-layer problem. You need tolerance at the detection layer, quorum at the aggregation layer, and debounce at the event layer. Any single fix alone is insufficient.
+
+---
