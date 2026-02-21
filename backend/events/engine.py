@@ -135,11 +135,18 @@ def _build_anomaly_cleared_message() -> str:
 
 class _AssetState:
     """Tracks the previous is_faulty state for a single asset."""
-    __slots__ = ("previous_is_faulty", "last_event_timestamp")
+    __slots__ = ("previous_is_faulty", "last_event_timestamp",
+                 "_consecutive_faulty", "_consecutive_healthy")
+
+    # Phase 7: Debounce — require N consecutive matching evaluations
+    # before acknowledging a transition. At 1 eval/sec this equals N seconds.
+    DEBOUNCE_COUNT = 2  # 2 consecutive seconds
 
     def __init__(self):
         self.previous_is_faulty: Optional[bool] = None  # None = unknown / first run
         self.last_event_timestamp: Optional[str] = None
+        self._consecutive_faulty: int = 0
+        self._consecutive_healthy: int = 0
 
 
 # ============================================================================
@@ -229,9 +236,38 @@ class EventEngine:
 
             # No transition → no event
             if is_faulty == state.previous_is_faulty:
+                # Reset the opposite counter while maintaining current state
+                if is_faulty:
+                    state._consecutive_healthy = 0
+                else:
+                    state._consecutive_faulty = 0
                 return []
 
-            # --- STATE TRANSITION DETECTED ---
+            # --- PHASE 7: Debounce — count consecutive contrary readings ---
+            if is_faulty:
+                state._consecutive_faulty += 1
+                state._consecutive_healthy = 0
+            else:
+                state._consecutive_healthy += 1
+                state._consecutive_faulty = 0
+
+            if is_faulty and state._consecutive_faulty < _AssetState.DEBOUNCE_COUNT:
+                logger.debug(
+                    f"[EventEngine] {asset_id}: faulty tick "
+                    f"{state._consecutive_faulty}/{_AssetState.DEBOUNCE_COUNT} — debouncing"
+                )
+                return []
+            if not is_faulty and state._consecutive_healthy < _AssetState.DEBOUNCE_COUNT:
+                logger.debug(
+                    f"[EventEngine] {asset_id}: healthy tick "
+                    f"{state._consecutive_healthy}/{_AssetState.DEBOUNCE_COUNT} — debouncing"
+                )
+                return []
+
+            # --- STATE TRANSITION CONFIRMED (passed debounce) ---
+            state._consecutive_faulty = 0
+            state._consecutive_healthy = 0
+
             if is_faulty and not state.previous_is_faulty:
                 # healthy → faulty
                 event = {

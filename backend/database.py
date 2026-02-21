@@ -431,14 +431,17 @@ from(bucket: "{self._bucket}")
             results = []
             for table in tables:
                 for record in table.records:
-                    # CRITICAL: is_faulty becomes FLOAT after aggregateWindow(fn: mean)
-                    # e.g., if 2/100 points are faulty, mean = 0.02
-                    # Convert back to boolean: any non-zero value = True (at least one fault in window)
+                    # PHASE 7 "Majority Rules": is_faulty becomes FLOAT after
+                    # aggregateWindow(fn: mean).  e.g., 15/100 faulty → mean = 0.15
+                    # Only flag the 1-second window as anomalous when ≥ 15 % of the
+                    # underlying 100 Hz points were marked faulty (threshold 0.15).
+                    # This suppresses single-point Gaussian outliers while still
+                    # catching real jitter clusters and injected faults.
                     is_faulty_val = record.values.get("is_faulty", 0.0)
                     if isinstance(is_faulty_val, bool):
                         is_faulty = is_faulty_val
                     elif isinstance(is_faulty_val, (int, float)):
-                        is_faulty = is_faulty_val > 0  # Any faulty point in window = True
+                        is_faulty = is_faulty_val >= 0.15  # Majority-rules: ≥15/100 points
                     else:
                         is_faulty = False
                     

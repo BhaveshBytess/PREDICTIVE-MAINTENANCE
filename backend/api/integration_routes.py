@@ -460,8 +460,8 @@ async def simple_ingest(request: SimpleIngestRequest):
         for signal_name, value in signals.items():
             if signal_name in baseline.signal_profiles:
                 profile = baseline.signal_profiles[signal_name]
-                # Check if value exceeds baseline bounds (with 10% tolerance)
-                tolerance = (profile.max - profile.min) * 0.1
+                # Phase 7: Widened from 10% → 25% to suppress Gaussian noise false positives
+                tolerance = (profile.max - profile.min) * 0.25
                 if value < (profile.min - tolerance) or value > (profile.max + tolerance):
                     is_anomaly = True
                     break

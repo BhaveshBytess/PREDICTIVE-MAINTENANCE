@@ -477,6 +477,7 @@ def run_calibration(asset_id: str):
                     is_batch_anomaly = False
             elif asset_id in _baselines:
                 # Fallback to range check if no batch detector
+                # Phase 7: Widened from 10% → 25% to suppress Gaussian noise false positives
                 bl = _baselines[asset_id]
                 latest = raw_batch[-1]
                 for signal_name, value in [('voltage_v', latest['voltage_v']),
@@ -485,7 +486,7 @@ def run_calibration(asset_id: str):
                                            ('vibration_g', latest['vibration_g'])]:
                     if signal_name in bl.signal_profiles:
                         profile = bl.signal_profiles[signal_name]
-                        tolerance = (profile.max - profile.min) * 0.1
+                        tolerance = (profile.max - profile.min) * 0.25
                         if value < (profile.min - tolerance) or value > (profile.max + tolerance):
                             is_batch_anomaly = True
                             break
@@ -779,6 +780,7 @@ async def reset_system(
                 except Exception:
                     is_anomaly = False
             elif asset_id in _baselines:
+                # Phase 7: Widened from 10% → 25% to suppress Gaussian noise false positives
                 bl = _baselines[asset_id]
                 latest = raw_batch[-1]
                 for signal_name, value in [('voltage_v', latest['voltage_v']),
@@ -787,7 +789,7 @@ async def reset_system(
                                            ('vibration_g', latest['vibration_g'])]:
                     if signal_name in bl.signal_profiles:
                         profile = bl.signal_profiles[signal_name]
-                        tolerance = (profile.max - profile.min) * 0.1
+                        tolerance = (profile.max - profile.min) * 0.25
                         if value < (profile.min - tolerance) or value > (profile.max + tolerance):
                             is_anomaly = True
                             break
