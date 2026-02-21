@@ -1,0 +1,98 @@
+/* StatusCard — Glanceable summary card (dark glassmorphism) */
+
+.card {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    transition: border-color var(--transition-normal),
+                background var(--transition-normal);
+    min-width: 0;
+}
+
+/* Icon */
+.iconBadge {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: var(--radius-md);
+}
+
+/* Body (label + value) */
+.body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.valueRow {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.value {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.unit {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+/* Status pill */
+.pill {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border: 1px solid currentColor;
+    border-radius: 99px;
+    white-space: nowrap;
+}
+
+/* ── Responsive ─────────────────────── */
+@media (max-width: 640px) {
+    .card {
+        padding: var(--spacing-sm) var(--spacing-md);
+    }
+
+    .value {
+        font-size: 1.25rem;
+    }
+
+    .iconBadge {
+        width: 32px;
+        height: 32px;
+        font-size: 1rem;
+    }
+}

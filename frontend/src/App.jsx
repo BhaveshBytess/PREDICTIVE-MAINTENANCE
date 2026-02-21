@@ -21,6 +21,13 @@ import SystemControlPanel from './components/SystemControlPanel'
 import PerformanceCard from './components/PerformanceCard'
 import SandboxModal from './components/SandboxModal'
 import LogWatcher from './components/LogWatcher/LogWatcher'
+import StatusCard, {
+    healthStatus,
+    vibrationStatus,
+    voltageStatus,
+    currentStatus,
+    applyFaultOverride,
+} from './components/StatusCard/StatusCard'
 
 // API
 import { fetchHealthStatus, fetchDataHistory, getReportUrl, buildBaseline, checkApiHealth } from './api/client'
@@ -38,6 +45,7 @@ function App() {
     const [chartData, setChartData] = useState([])
     const [anomalyPoints, setAnomalyPoints] = useState([])
     const [sampleCount, setSampleCount] = useState(0)
+    const [latestReading, setLatestReading] = useState(null)
     const [validationMetrics, setValidationMetrics] = useState({
         trainingSamples: 0,
         healthyStability: 100.0,
@@ -80,6 +88,7 @@ function App() {
                 setSampleCount(history.count)
 
                 const latest = data[data.length - 1]
+                setLatestReading(latest)
                 setMetrics({
                     voltage: latest.voltage_v,
                     current: latest.current_a,
@@ -138,22 +147,51 @@ function App() {
                     {/* System Control Panel */}
                     <SystemControlPanel onMetricsUpdate={setValidationMetrics} />
 
-                    {/* 3 Metric Cards in a Row */}
-                    <div className={styles.metricsGrid}>
-                        <MetricCard
-                            label="VOLTAGE (V)"
-                            value={metrics?.voltage?.toFixed(0) ?? '---'}
+                    {/* Phase 3: Glanceable Status Cards — 4 across */}
+                    <div className={styles.statusRow}>
+                        <StatusCard
+                            label="Health Score"
+                            icon="💚"
+                            value={healthData?.score}
+                            displayValue={healthData?.score != null ? String(healthData.score) : '---'}
+                            unit="/ 100"
+                            status={applyFaultOverride(
+                                healthStatus(healthData?.score),
+                                latestReading?.is_faulty
+                            )}
+                        />
+                        <StatusCard
+                            label="Vibration"
+                            icon="📳"
+                            value={latestReading?.vibration_g}
+                            displayValue={latestReading?.vibration_g != null ? latestReading.vibration_g.toFixed(3) : '---'}
+                            unit="g"
+                            status={applyFaultOverride(
+                                vibrationStatus(latestReading?.vibration_g),
+                                latestReading?.is_faulty
+                            )}
+                        />
+                        <StatusCard
+                            label="Voltage"
                             icon="⚡"
+                            value={latestReading?.voltage_v}
+                            displayValue={latestReading?.voltage_v != null ? latestReading.voltage_v.toFixed(1) : '---'}
+                            unit="V"
+                            status={applyFaultOverride(
+                                voltageStatus(latestReading?.voltage_v),
+                                latestReading?.is_faulty
+                            )}
                         />
-                        <MetricCard
-                            label="CURRENT (A)"
-                            value={metrics?.current?.toFixed(1) ?? '---'}
+                        <StatusCard
+                            label="Current"
                             icon="🔌"
-                        />
-                        <MetricCard
-                            label="POWER FACTOR"
-                            value={metrics?.powerFactor?.toFixed(2) ?? '---'}
-                            icon="📊"
+                            value={latestReading?.current_a}
+                            displayValue={latestReading?.current_a != null ? latestReading.current_a.toFixed(1) : '---'}
+                            unit="A"
+                            status={applyFaultOverride(
+                                currentStatus(latestReading?.current_a),
+                                latestReading?.is_faulty
+                            )}
                         />
                     </div>
 

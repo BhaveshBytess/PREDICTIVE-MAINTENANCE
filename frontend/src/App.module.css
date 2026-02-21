@@ -26,10 +26,10 @@
     gap: var(--spacing-lg);
 }
 
-/* 3 Metrics in a Row */
-.metricsGrid {
+/* Phase 3: Glanceable Status Cards — 4 across */
+.statusRow {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: var(--spacing-md);
 }
 
@@ -148,8 +148,8 @@
 }
 
 @media (max-width: 640px) {
-    .metricsGrid {
-        grid-template-columns: 1fr;
+    .statusRow {
+        grid-template-columns: repeat(2, 1fr);
     }
 
     .main {
