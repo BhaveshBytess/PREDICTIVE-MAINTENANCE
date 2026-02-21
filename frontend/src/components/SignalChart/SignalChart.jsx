@@ -183,41 +183,42 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
         }
     })
 
-    // Calculate coalesced anomaly regions for shaded areas
-    const anomalyRegions = calculateAnomalyRegions(dataWithTimestamps)
+    /* ── Directive A: Fixed 60s sliding window (right-anchored) ── */
+    const now = Date.now()
+    const windowStart = now - 60000
 
-    // Get chart X-axis domain (timestamp range)
-    const chartStartTime = dataWithTimestamps.length > 0 ? dataWithTimestamps[0].timestamp : 0
-    const chartEndTime = dataWithTimestamps.length > 0 ? dataWithTimestamps[dataWithTimestamps.length - 1].timestamp : 0
-    
-    // Pure Time-Based Marker Rendering:
-    // Simply check if log timestamp falls within chart's X-axis domain
-    // NO dependency on matching sensor data points!
+    // Only render data within the visible 60s window
+    const visibleData = dataWithTimestamps.filter(
+        d => d.timestamp >= windowStart && d.timestamp <= now
+    )
+
+    /* ── Directive B: Need ≥ 2 points to draw a line segment ── */
+    const hasEnoughPoints = visibleData.length >= 2
+
+    // Calculate coalesced anomaly regions from visible data
+    const anomalyRegions = calculateAnomalyRegions(visibleData)
+
+    // Maintenance markers within visible 60s window
     const maintenanceMarkers = maintenanceLogs
         .map(log => {
             const logTimestamp = new Date(log.timestamp).getTime()
-            
-            // Check if log falls within chart's visible time range
-            if (logTimestamp >= chartStartTime && logTimestamp <= chartEndTime) {
+            if (logTimestamp >= windowStart && logTimestamp <= now) {
                 return {
                     ...log,
-                    timestamp: logTimestamp, // Unix timestamp for X position
+                    timestamp: logTimestamp,
                     color: severityColors[log.severity] || '#6b7280'
                 }
             }
-            return null // Log is outside chart's visible time range
+            return null
         })
-        .filter(Boolean) // Remove nulls
+        .filter(Boolean)
 
-    // Format timestamp for X-axis tick display
-    // PHASE 1C: Include seconds for industrial-grade granularity (1 point/sec)
+    // Format timestamp for X-axis ticks (HH:mm:ss)
     const formatTimestamp = (ts) => {
-        return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        return new Date(ts).toLocaleTimeString('en-US', {
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        })
     }
-
-    // Log debug info
-    console.log(`📊 Chart domain: ${new Date(chartStartTime).toISOString()} to ${new Date(chartEndTime).toISOString()}`)
-    console.log(`📋 Maintenance markers: ${maintenanceMarkers.length} visible out of ${maintenanceLogs.length} total`)
 
     return (
         <div className={`glass-card ${styles.container}`}>
@@ -225,24 +226,18 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
 
             <div className={styles.chartWrapper}>
                 <ResponsiveContainer width="100%" height={450}>
-                    <LineChart data={dataWithTimestamps} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
-                        <defs>
-                            <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
-                                <stop offset="0%" stopColor="#3b82f6" />
-                                <stop offset="100%" stopColor="#8b5cf6" />
-                            </linearGradient>
-                        </defs>
-
+                    <LineChart data={visibleData} margin={{ top: 20, right: 60, left: 0, bottom: 20 }}>
                         <CartesianGrid
                             strokeDasharray="3 3"
                             stroke="rgba(255,255,255,0.1)"
                             vertical={false}
                         />
 
+                        {/* Directive A: Fixed 60s sliding window, right-anchored */}
                         <XAxis
                             dataKey="timestamp"
                             type="number"
-                            domain={['dataMin', 'dataMax']}
+                            domain={[windowStart, now]}
                             scale="time"
                             tickFormatter={formatTimestamp}
                             stroke="#6b7280"
@@ -250,16 +245,33 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                             tickLine={false}
                             interval="preserveStartEnd"
                             animationDuration={0}
+                            allowDataOverflow
                         />
 
+                        {/* Directive C: Fixed Y-axis domains */}
                         <YAxis
-                            stroke="#6b7280"
-                            tick={{ fill: '#9ca3af', fontSize: 12 }}
+                            yAxisId="voltage"
+                            orientation="left"
+                            domain={[0, 300]}
+                            stroke="#3b82f6"
+                            tick={{ fill: '#3b82f6', fontSize: 11 }}
                             tickLine={false}
                             axisLine={false}
-                            domain={['auto', 'auto']}
+                            label={{ value: 'V', position: 'insideTopLeft', fill: '#3b82f6', fontSize: 11, offset: 10 }}
                             animationDuration={0}
                         />
+                        <YAxis
+                            yAxisId="vibration"
+                            orientation="right"
+                            domain={[0, 2]}
+                            stroke="#10b981"
+                            tick={{ fill: '#10b981', fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            label={{ value: 'g', position: 'insideTopRight', fill: '#10b981', fontSize: 11, offset: 10 }}
+                            animationDuration={0}
+                        />
+                        <YAxis yAxisId="current" domain={[0, 40]} hide animationDuration={0} />
 
                         <Tooltip
                             contentStyle={{
@@ -269,16 +281,19 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                                 color: '#f9fafb'
                             }}
                             labelStyle={{ color: '#9ca3af' }}
-                            formatter={(value, name, props) => {
-                                const suffix = props.payload?.anomaly ? ' ⚠️ ANOMALY' : ''
-                                return [`${value.toFixed(2)}${suffix}`, 'Power (mW)']
+                            labelFormatter={formatTimestamp}
+                            formatter={(value, name) => {
+                                const units = { voltage: 'V', current: 'A', vibration: 'g' }
+                                const labels = { voltage: 'Voltage', current: 'Current', vibration: 'Vibration' }
+                                return [`${Number(value).toFixed(2)} ${units[name] || ''}`, labels[name] || name]
                             }}
                         />
 
-                        {/* Shaded red regions for anomaly spans - use timestamps */}
+                        {/* Anomaly shading */}
                         {anomalyRegions.map((region, idx) => (
                             <ReferenceArea
                                 key={`anomaly-region-${idx}`}
+                                yAxisId="voltage"
                                 x1={region.x1}
                                 x2={region.x2}
                                 fill="#ef4444"
@@ -290,10 +305,11 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                             />
                         ))}
 
-                        {/* Maintenance log vertical markers - PURE TIME-BASED */}
+                        {/* Maintenance markers */}
                         {maintenanceMarkers.map((marker, idx) => (
                             <ReferenceLine
                                 key={`maintenance-${marker.event_id || idx}`}
+                                yAxisId="voltage"
                                 x={marker.timestamp}
                                 stroke={marker.color}
                                 strokeWidth={2}
@@ -311,6 +327,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                         {/* Explainability Link — correlation line from LogWatcher click */}
                         {selectedTimestamp && (
                             <ReferenceLine
+                                yAxisId="voltage"
                                 x={selectedTimestamp}
                                 stroke="#fbbf24"
                                 strokeWidth={2}
@@ -326,28 +343,63 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                             />
                         )}
 
-                        <Line
-                            type="monotone"
-                            dataKey="value"
-                            stroke="url(#lineGradient)"
-                            strokeWidth={2}
-                            dot={false}
-                            isAnimationActive={false}
-                            activeDot={{
-                                r: 6,
-                                fill: '#3b82f6',
-                                stroke: '#fff',
-                                strokeWidth: 2
-                            }}
-                        />
+                        {/* Directive B: Lines only render with ≥ 2 points; connectNulls=false */}
+                        {hasEnoughPoints && (
+                            <>
+                                <Line
+                                    yAxisId="voltage"
+                                    type="monotone"
+                                    dataKey="voltage"
+                                    name="voltage"
+                                    stroke="#3b82f6"
+                                    strokeWidth={2}
+                                    dot={false}
+                                    connectNulls={false}
+                                    isAnimationActive={false}
+                                    activeDot={{ r: 5, fill: '#3b82f6', stroke: '#fff', strokeWidth: 2 }}
+                                />
+                                <Line
+                                    yAxisId="current"
+                                    type="monotone"
+                                    dataKey="current"
+                                    name="current"
+                                    stroke="#f59e0b"
+                                    strokeWidth={2}
+                                    dot={false}
+                                    connectNulls={false}
+                                    isAnimationActive={false}
+                                    activeDot={{ r: 5, fill: '#f59e0b', stroke: '#fff', strokeWidth: 2 }}
+                                />
+                                <Line
+                                    yAxisId="vibration"
+                                    type="monotone"
+                                    dataKey="vibration"
+                                    name="vibration"
+                                    stroke="#10b981"
+                                    strokeWidth={2}
+                                    dot={false}
+                                    connectNulls={false}
+                                    isAnimationActive={false}
+                                    activeDot={{ r: 5, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
+                                />
+                            </>
+                        )}
                     </LineChart>
                 </ResponsiveContainer>
             </div>
 
             <div className={styles.legend}>
                 <div className={styles.legendItem}>
-                    <span className={styles.legendLine}></span>
-                    <span>Power Signature</span>
+                    <span className={styles.legendLine} style={{ background: '#3b82f6' }}></span>
+                    <span>Voltage (V)</span>
+                </div>
+                <div className={styles.legendItem}>
+                    <span className={styles.legendLine} style={{ background: '#f59e0b' }}></span>
+                    <span>Current (A)</span>
+                </div>
+                <div className={styles.legendItem}>
+                    <span className={styles.legendLine} style={{ background: '#10b981' }}></span>
+                    <span>Vibration (g)</span>
                 </div>
                 <div className={styles.legendItem}>
                     <span className={styles.legendAnomaly}></span>
@@ -355,7 +407,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
                 </div>
                 <div className={styles.legendItem}>
                     <span className={styles.legendMaintenance}>🔧</span>
-                    <span>Maintenance Log ({maintenanceMarkers.length} on chart{maintenanceLogs.length > maintenanceMarkers.length ? `, ${maintenanceLogs.length} total` : ''})</span>
+                    <span>Maintenance ({maintenanceMarkers.length})</span>
                 </div>
                 {selectedTimestamp && (
                     <div className={styles.legendItem}>

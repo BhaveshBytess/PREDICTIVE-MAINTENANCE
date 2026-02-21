@@ -95,12 +95,12 @@ function App() {
                     powerFactor: latest.power_factor
                 })
 
-                // PHASE 1A: Preserve REAL timestamps - do NOT format or strip
-                // Pass raw ISO timestamp string directly from backend
+                // Phase 6: Pass raw sensor metrics for multi-signal chart
                 const chartPoints = data.map((d) => ({
-                    timestamp: d.timestamp,  // ISO string from backend (real time)
-                    value: d.vibration_g * 1000,
+                    timestamp: d.timestamp,   // ISO string from backend (real time)
                     voltage: d.voltage_v,
+                    current: d.current_a,
+                    vibration: d.vibration_g,
                     is_anomaly: d.is_faulty ?? d.is_anomaly ?? false
                 }))
                 setChartData(chartPoints)
@@ -109,13 +109,24 @@ function App() {
                 // Clear legacy index-based anomaly array
                 setAnomalyPoints([])
 
-                // Phase 2: Accumulate events from backend into buffer (cap at 50)
-                if (history.events && history.events.length > 0) {
-                    setEventLog(prev => {
-                        const merged = [...prev, ...history.events]
-                        return merged.slice(-EVENT_BUFFER_CAP)
-                    })
-                }
+                // Phase 2 + Directive D: Accumulate events + warm-up narrative
+                setEventLog(prev => {
+                    const parts = []
+                    // Directive D: Inject init event once on first telemetry arrival
+                    if (prev.length === 0) {
+                        parts.push({
+                            type: 'SYSTEM_INIT',
+                            severity: 'info',
+                            timestamp: new Date().toISOString(),
+                            message: 'System Initialized. Streaming telemetry into 60s buffer...'
+                        })
+                    }
+                    if (history.events?.length > 0) {
+                        parts.push(...history.events)
+                    }
+                    if (parts.length === 0) return prev
+                    return [...prev, ...parts].slice(-EVENT_BUFFER_CAP)
+                })
             }
         } catch (error) {
             console.error('Error fetching data:', error)
@@ -200,7 +211,7 @@ function App() {
                         <SignalChart
                             data={chartData}
                             anomalyIndices={anomalyPoints}
-                            title="Real-time Power Signature (Last 60 readings)"
+                            title="Streaming Sensor Telemetry — 60s Window"
                             refreshTrigger={logsRefreshTrigger}
                             selectedTimestamp={selectedTimestamp}
                         />
