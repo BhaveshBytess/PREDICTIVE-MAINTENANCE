@@ -1,9 +1,9 @@
-/* StatusCard — Glanceable summary card (dark glassmorphism) */
+/* StatusCard — Glanceable summary card (dark glassmorphism, vertical layout) */
 
 .card {
     display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
+    flex-direction: column;
+    gap: var(--spacing-sm);
     padding: var(--spacing-md) var(--spacing-lg);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-lg);
@@ -11,40 +11,35 @@
     -webkit-backdrop-filter: blur(var(--glass-blur));
     transition: border-color var(--transition-normal),
                 background var(--transition-normal);
-    min-width: 0;
+}
+
+/* Header row: icon left, pill right */
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 /* Icon */
 .iconBadge {
     flex-shrink: 0;
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.3rem;
+    font-size: 1.2rem;
     background: rgba(255, 255, 255, 0.04);
     border-radius: var(--radius-md);
 }
 
-/* Body (label + value) */
-.body {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-}
-
+/* Label — full width, no truncation */
 .label {
-    font-size: 0.65rem;
+    font-size: 0.7rem;
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .valueRow {
@@ -54,7 +49,7 @@
 }
 
 .value {
-    font-size: 1.6rem;
+    font-size: 1.5rem;
     font-weight: 800;
     color: var(--text-primary);
     line-height: 1.1;
@@ -69,7 +64,6 @@
 
 /* Status pill */
 .pill {
-    flex-shrink: 0;
     padding: 2px 8px;
     font-size: 0.6rem;
     font-weight: 700;

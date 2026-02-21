@@ -111,29 +111,29 @@ const StatusCard = memo(function StatusCard({
                 borderColor: cfg.borderTint,
             }}
         >
-            {/* Icon badge */}
-            <div className={styles.iconBadge}>
-                <span>{icon}</span>
-            </div>
-
-            {/* Content */}
-            <div className={styles.body}>
-                <span className={styles.label}>{label}</span>
-                <div className={styles.valueRow}>
-                    <span className={styles.value}>
-                        {displayValue ?? (value != null ? value : '---')}
-                    </span>
-                    {unit && <span className={styles.unit}>{unit}</span>}
+            {/* Header: Icon + Status pill */}
+            <div className={styles.header}>
+                <div className={styles.iconBadge}>
+                    <span>{icon}</span>
                 </div>
+                <span
+                    className={styles.pill}
+                    style={{ color: cfg.colorVar, borderColor: cfg.colorVar }}
+                >
+                    {cfg.label}
+                </span>
             </div>
 
-            {/* Status pill */}
-            <span
-                className={styles.pill}
-                style={{ color: cfg.colorVar, borderColor: cfg.colorVar }}
-            >
-                {cfg.label}
-            </span>
+            {/* Label */}
+            <span className={styles.label}>{label}</span>
+
+            {/* Value + Unit */}
+            <div className={styles.valueRow}>
+                <span className={styles.value}>
+                    {displayValue ?? (value != null ? value : '---')}
+                </span>
+                {unit && <span className={styles.unit}>{unit}</span>}
+            </div>
         </div>
     )
 })
