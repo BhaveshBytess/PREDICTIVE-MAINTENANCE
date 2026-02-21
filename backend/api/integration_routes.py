@@ -29,6 +29,7 @@ from backend.reports.industrial_report import (
     generate_industrial_filename
 )
 from backend.database import db
+from backend.events import event_engine
 
 
 logger = logging.getLogger(__name__)
@@ -529,8 +530,23 @@ async def get_data_history(
         limit=limit
     )
     
+    # --- EVENT ENGINE: evaluate latest data point for state transitions ---
+    events = []
+    if history:
+        latest = history[-1]
+        is_faulty = latest.get("is_faulty", False)
+        events = event_engine.evaluate(
+            asset_id=asset_id,
+            is_faulty=is_faulty,
+            timestamp=latest.get("timestamp"),
+            sensor_snapshot=latest,
+        )
+        if events:
+            logger.info(f"[EventEngine] {asset_id}: emitted {events[0]['type']}")
+    
     return {
         "asset_id": asset_id,
-        "data": history,
+        "sensor_data": history,
+        "events": events,
         "count": len(history)
     }

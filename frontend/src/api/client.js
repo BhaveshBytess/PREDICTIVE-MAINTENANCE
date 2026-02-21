@@ -36,12 +36,12 @@ export async function fetchDataHistory(assetId = 'Motor-01', limit = 100) {
     try {
         const response = await fetch(`${API_BASE}/api/v1/data/history/${assetId}?limit=${limit}`)
         if (!response.ok) {
-            return { data: [], count: 0 }
+            return { sensor_data: [], events: [], count: 0 }
         }
         return response.json()
     } catch (error) {
         console.warn('Failed to fetch data history:', error.message)
-        return { data: [], count: 0 }
+        return { sensor_data: [], events: [], count: 0 }
     }
 }
 

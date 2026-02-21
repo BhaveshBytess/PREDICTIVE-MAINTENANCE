@@ -69,8 +69,8 @@ function App() {
             }
 
             const history = await fetchDataHistory(ASSET_ID, 60)
-            if (history && history.data.length > 0) {
-                const data = history.data
+            if (history && history.sensor_data && history.sensor_data.length > 0) {
+                const data = history.sensor_data
                 setSampleCount(history.count)
 
                 const latest = data[data.length - 1]
