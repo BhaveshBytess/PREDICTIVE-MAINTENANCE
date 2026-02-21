@@ -100,6 +100,7 @@ const StatusCard = memo(function StatusCard({
     icon,
     status = 'NORMAL',
     displayValue,
+    baselineTarget,
 }) {
     const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.NORMAL
 
@@ -134,6 +135,11 @@ const StatusCard = memo(function StatusCard({
                 </span>
                 {unit && <span className={styles.unit}>{unit}</span>}
             </div>
+
+            {/* Baseline target (learned) */}
+            {baselineTarget != null && (
+                <span className={styles.target}>Target: {baselineTarget}{unit ? ` ${unit.replace('/ ', '')}` : ''}</span>
+            )}
         </div>
     )
 })

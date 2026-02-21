@@ -85,3 +85,19 @@ export async function stopSession() {
     }
     return response.json();
 }
+
+/**
+ * Purge all data and re-calibrate
+ * Deletes InfluxDB data, wipes ML baselines, resets to IDLE
+ * @returns {Promise<{status: string, message: string, state: string}>}
+ */
+export async function purgeSystem() {
+    const response = await fetch(`${API_BASE}/system/purge`, {
+        method: 'POST',
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Purge failed');
+    }
+    return response.json();
+}

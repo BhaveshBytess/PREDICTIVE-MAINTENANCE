@@ -62,6 +62,16 @@
     color: var(--text-muted);
 }
 
+/* Baseline target label */
+.target {
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    opacity: 0.7;
+    font-style: italic;
+    letter-spacing: 0.02em;
+}
+
 /* Status pill */
 .pill {
     padding: 2px 8px;

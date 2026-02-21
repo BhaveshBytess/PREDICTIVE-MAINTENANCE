@@ -140,6 +140,7 @@ class HealthStatusResponse(BaseModel):
     maintenance_window_days: float
     explanations: list
     model_version: str
+    baseline_targets: Optional[Dict[str, Any]] = None
 
 
 class SimpleIngestRequest(BaseModel):
@@ -356,6 +357,13 @@ async def get_health_status(asset_id: str):
     # Store latest health
     _latest_health[asset_id] = report
     
+    # Build baseline target dict for frontend status cards
+    baseline_targets = None
+    if baseline:
+        baseline_targets = {}
+        for signal_name, profile in baseline.signal_profiles.items():
+            baseline_targets[signal_name] = round(profile.mean, 2)
+
     return HealthStatusResponse(
         asset_id=asset_id,
         timestamp=report.timestamp,
@@ -363,7 +371,8 @@ async def get_health_status(asset_id: str):
         risk_level=report.risk_level.value,
         maintenance_window_days=report.maintenance_window_days,
         explanations=[e.reason for e in explanations] if explanations else ["Systems nominal"],
-        model_version=report.metadata.model_version
+        model_version=report.metadata.model_version,
+        baseline_targets=baseline_targets
     )
 
 
@@ -411,6 +420,18 @@ async def download_report(
     
     # Get sensor history for reports
     sensor_data = _sensor_history.get(asset_id, [])
+    
+    # Directive C: Compute anomaly_score for each reading using baseline range check
+    baseline = _baselines.get(asset_id)
+    if baseline and sensor_data:
+        for reading in sensor_data:
+            if 'anomaly_score' not in reading or reading.get('anomaly_score') is None:
+                reading['anomaly_score'] = round(_simple_range_check(baseline, reading), 3)
+    elif sensor_data:
+        # No baseline — mark all as 0.0 (healthy default)
+        for reading in sensor_data:
+            if 'anomaly_score' not in reading or reading.get('anomaly_score') is None:
+                reading['anomaly_score'] = 0.0
     
     if format.lower() == "xlsx":
         content = generate_excel_report(report, sensor_data)

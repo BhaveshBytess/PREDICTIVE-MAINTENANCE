@@ -54,6 +54,7 @@ function App() {
     })
     const [isSandboxOpen, setIsSandboxOpen] = useState(false)
     const [logsRefreshTrigger, setLogsRefreshTrigger] = useState(0)
+    const [baselineTargets, setBaselineTargets] = useState(null)
 
     // Phase 2: Event Engine — accumulated events buffer + chart correlation
     const [eventLog, setEventLog] = useState([])
@@ -81,6 +82,9 @@ function App() {
                     maintenanceDays: health.maintenance_window_days
                 })
                 setExplanations(health.explanations || [])
+                if (health.baseline_targets) {
+                    setBaselineTargets(health.baseline_targets)
+                }
             }
 
             const history = await fetchDataHistory(ASSET_ID, 60)
@@ -190,6 +194,7 @@ function App() {
                                 vibrationStatus(latestReading?.vibration_g),
                                 latestReading?.is_faulty
                             )}
+                            baselineTarget={baselineTargets?.vibration_g}
                         />
                         <StatusCard
                             label="Voltage"
@@ -201,6 +206,7 @@ function App() {
                                 voltageStatus(latestReading?.voltage_v),
                                 latestReading?.is_faulty
                             )}
+                            baselineTarget={baselineTargets?.voltage_v}
                         />
                         <StatusCard
                             label="Current"
@@ -212,6 +218,7 @@ function App() {
                                 currentStatus(latestReading?.current_a),
                                 latestReading?.is_faulty
                             )}
+                            baselineTarget={baselineTargets?.current_a}
                         />
                     </div>
 

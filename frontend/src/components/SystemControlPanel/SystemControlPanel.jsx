@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { getSystemState, calibrateSystem, injectFault, resetSystem, stopSession } from '../../api/systemApi'
+import { getSystemState, calibrateSystem, injectFault, resetSystem, stopSession, purgeSystem } from '../../api/systemApi'
 import styles from './SystemControlPanel.module.css'
 
 // State constants
@@ -120,6 +120,19 @@ export default function SystemControlPanel({ onMetricsUpdate }) {
         setError(null)
         try {
             await stopSession()
+        } catch (err) {
+            setError(err.message)
+        } finally {
+            setIsLoading(false)
+        }
+    }, [])
+
+    const handlePurge = useCallback(async () => {
+        if (!window.confirm('This will DELETE all sensor data and ML baselines. Continue?')) return
+        setIsLoading(true)
+        setError(null)
+        try {
+            await purgeSystem()
         } catch (err) {
             setError(err.message)
         } finally {
@@ -257,6 +270,15 @@ export default function SystemControlPanel({ onMetricsUpdate }) {
                     title={canStop ? 'Stop session and return to IDLE' : 'Can only stop when monitoring'}
                 >
                     ⏹️ Stop
+                </button>
+
+                <button
+                    className={`${styles.button} ${styles.purgeBtn}`}
+                    onClick={handlePurge}
+                    disabled={isLoading}
+                    title="Delete ALL data and ML baselines, restart from scratch"
+                >
+                    🗑️ Purge & Re-Calibrate
                 </button>
             </div>
 

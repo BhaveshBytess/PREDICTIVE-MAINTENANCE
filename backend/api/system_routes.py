@@ -878,3 +878,44 @@ async def stop_session():
         message="Session stopped. System is now IDLE.",
         state=SystemState.IDLE.value
     )
+
+
+@router.post("/purge", response_model=ActionResponse)
+async def purge_and_recalibrate():
+    """
+    Deep System Purge — wipe ALL data and return to blank state.
+
+    Actions:
+    1. Stop any running background task.
+    2. Delete all entries in the InfluxDB sensor_data bucket.
+    3. Clear in-memory sensor history, baselines, detectors.
+    4. Reset system state to IDLE.
+
+    After purge the dashboard shows a blank canvas and the user
+    must click Calibrate to restart the demo narrative.
+    """
+    # 1. Stop background task if running
+    _state_manager.stop_background_task()
+
+    # 2. Delete all InfluxDB data
+    db.delete_all()
+
+    # 3. Wipe in-memory state
+    _sensor_history.clear()
+    _baselines.clear()
+    _detectors.clear()
+    _batch_detectors.clear()
+
+    # 4. Reset state manager
+    _state_manager.reset_metrics()
+    _state_manager.set_training_samples(0)
+    _state_manager.set_state(
+        SystemState.IDLE,
+        "System purged. All data wiped. Click 'Calibrate' to begin fresh."
+    )
+
+    return ActionResponse(
+        status="purged",
+        message="All data purged. InfluxDB bucket cleared, ML baselines wiped. System is IDLE.",
+        state=SystemState.IDLE.value
+    )

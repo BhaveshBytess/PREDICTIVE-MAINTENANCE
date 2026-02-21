@@ -175,6 +175,17 @@
     box-shadow: 0 4px 12px rgba(107, 114, 128, 0.4);
 }
 
+.purgeBtn {
+    background: linear-gradient(135deg, #a855f7, #7e22ce);
+    color: white;
+}
+
+.purgeBtn:not(:disabled):hover {
+    background: linear-gradient(135deg, #c084fc, #a855f7);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(168, 85, 247, 0.4);
+}
+
 /* Spinner */
 .spinner {
     width: 14px;

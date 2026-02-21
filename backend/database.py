@@ -487,6 +487,41 @@ from(bucket: "{self._bucket}")
                 pass
             self._client = None
         print("[DB] InfluxDB connection closed")
+
+    def delete_all(self) -> bool:
+        """
+        Delete ALL data in the configured bucket.
+
+        Uses the InfluxDB Delete API with a time range spanning the full
+        valid range (1970-01-01 through 2099-12-31).
+
+        Returns:
+            True if deletion succeeded (or mock mode), False on error.
+        """
+        if self._mock_mode:
+            self._mock_buffer.clear()
+            print("[DB] (Mock) All data cleared")
+            return True
+
+        try:
+            delete_api = self._client.delete_api()
+            from datetime import datetime, timezone
+            start = datetime(1970, 1, 1, tzinfo=timezone.utc)
+            stop = datetime(2099, 12, 31, tzinfo=timezone.utc)
+            delete_api.delete(
+                start,
+                stop,
+                predicate='',
+                bucket=self._bucket,
+                org=self._org,
+            )
+            print("[DB] \u2705 All data deleted from bucket")
+            logger.info(f"All data deleted from bucket '{self._bucket}'")
+            return True
+        except Exception as e:
+            print(f"[DB] \u274c Delete failed: {e}")
+            logger.error(f"Failed to delete data: {e}")
+            return False
     
     def reconnect(self) -> bool:
         """
