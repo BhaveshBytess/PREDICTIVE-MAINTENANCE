@@ -43,6 +43,9 @@ An end-to-end **Predictive Maintenance** system that monitors industrial assets 
 | 📈 **Dashboard** | React + Recharts real-time visualization with glassmorphism UI |
 | 📄 **Reporting** | Role-specialized reports: Executive PDF (Plant Managers), Multi-sheet Excel (Analysts), 5-page Industrial Certificate (Engineers) |
 | 📝 **Operator Logs** | Ground-truth maintenance event logging with InfluxDB persistence for supervised ML training |
+| 🎯 **Baseline Benchmarking** | Live status cards display baseline target values for instant comparison |
+| 🔄 **Purge & Re-Calibrate** | One-click system reset: wipes InfluxDB data + in-memory state, returns to IDLE |
+| 🏓 **Keep-Alive Heartbeat** | 10-minute `/ping` heartbeat prevents Render free-tier cold starts |
 
 ---
 
@@ -144,7 +147,7 @@ predictive-maintenance/
 │   ├── api/                 # FastAPI routes & schemas
 │   │   ├── main.py          # Application instance
 │   │   ├── routes.py        # /ingest, /health endpoints
-│   │   ├── system_routes.py # Calibration, fault injection, monitoring
+│   │   ├── system_routes.py # Calibration, fault injection, monitoring, purge
 │   │   ├── integration_routes.py # Health scoring, data history, events
 │   │   ├── operator_routes.py # Operator log endpoints
 │   │   ├── sandbox_routes.py  # What-If analysis
@@ -228,6 +231,26 @@ GET /health
 
 Response: { "status": "healthy", "db_connected": true }
 ```
+
+### Keep-Alive Ping
+
+```http
+GET /ping
+
+Response: { "status": "ok" }
+```
+
+> Used by the frontend's 10-minute heartbeat to keep the Render free-tier backend warm.
+
+### System Purge
+
+```http
+POST /system/purge
+
+Response: { "status": "purged", "message": "All data and models cleared. System reset to IDLE." }
+```
+
+> Deletes all InfluxDB data, clears in-memory baselines/detectors/history, and resets state to IDLE.
 
 ---
 
@@ -315,6 +338,9 @@ else:                   risk = LOW
   - **Multi-sheet Excel** — Summary, Operator Logs, Raw Sensor Data for Data Analysts
   - **Industrial PDF** — 5-page technical report with Maintenance Correlation Analysis for Engineers
 - 📝 **Operator Log Panel** — Real-time maintenance event logging with severity levels
+- 🎯 **Baseline Target Display** — Status cards show calibrated baseline targets alongside live readings
+- 🔄 **Purge & Re-Calibrate** — Purple button to wipe all data and restart calibration from scratch
+- 🏓 **Keep-Alive Heartbeat** — Automatic 10-minute `/ping` to prevent Render free-tier cold starts
 
 **Anomaly Visualization Logic:**
 - Red dashed lines appear **only when risk ≠ LOW**
@@ -437,6 +463,8 @@ Key architectural decisions are documented in [`ENGINEERING_LOG.md`](ENGINEERING
 - **Phase 15**: Batch ML retraining — 16-D features from 100Hz windows; JITTER fault type; F1=99.6%
 - **Phase 16**: Temporal anchoring — 60s right-anchored sliding window, fixed Y-axis domains, multi-signal chart
 - **Phase 17**: Noise suppression — 25% tolerance, majority-rules aggregation (≥15/100), 2s event debounce
+- **Phase 18**: Cloud recovery — lazy-loaded ML imports to prevent Render 503, `/ping` endpoint, `from __future__ import annotations` for deferred type evaluation
+- **Phase 19**: Baseline benchmarking on status cards, deep system purge (`/system/purge`), report refinement (real anomaly scores, sanitized operator logs)
 - **Scoring**: Batch-feature inference (primary) with legacy model fallback
 
 ---

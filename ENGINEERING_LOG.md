@@ -472,3 +472,66 @@
 * **Key Learning:** Noise suppression is a multi-layer problem. You need tolerance at the detection layer, quorum at the aggregation layer, and debounce at the event layer. Any single fix alone is insufficient.
 
 ---
+
+## [Phase 18] - Render Free-Tier 503 (Cold-Start Fix)
+
+* **Context:** Backend deployed on Render free tier returned 503 "Site Can't Be Reached" after inactivity.
+* **The Hurdle:** Render cold-starts the container after ~15 min inactivity. On startup, top-level imports of `sklearn`, `numpy`, `pandas`, and `joblib` consumed too much memory/time, causing Render's health check to timeout and kill the process.
+* **The Solution:**
+  - **Lazy-loaded** all heavy ML imports in 6 backend modules (`batch_detector.py`, `batch_features.py`, `detector.py`, `baseline.py`, `validation.py`, `__init__.py`). Imports happen inside functions, not at module level.
+  - Added lightweight `/ping` endpoint (no ML imports) for Render's health check
+  - Frontend sends a 10-minute keep-alive heartbeat to `/ping` to prevent cold starts
+  - Fixed Vite proxy config that was incorrectly stripping the `/api` prefix
+* **Key Learning:** Free-tier PaaS with sleep/spin-down requires minimal import footprint at startup. Defer heavy imports to first use, not module load.
+
+---
+
+## [Phase 18] - `from __future__ import annotations` Fix
+
+* **Context:** After lazy-loading ML imports, Render deploy failed with `NameError: name 'np' is not defined`.
+* **The Hurdle:** Python evaluates type annotations at import time by default. Functions like `def score(self, X: np.ndarray)` referenced `np` before it was imported (lazy-loaded inside method bodies). The annotation evaluation happened at class definition time, not call time.
+* **The Solution:** Added `from __future__ import annotations` to all 5 ML files. This PEP 563 directive defers annotation evaluation — they become strings at import time and are only resolved when explicitly inspected. Also moved `import joblib` inside `save_model()`/`load_model()` methods.
+* **Key Learning:** Lazy imports and type annotations are incompatible by default. `from __future__ import annotations` makes all annotations lazy, solving the circular reference. This is the default behavior in Python 3.14+.
+
+---
+
+## [Phase 19] - Directive A: Baseline Benchmarking on Status Cards
+
+* **Context:** Status cards showed live sensor values but no reference to compare against.
+* **The Hurdle:** Operators needed to quickly see if readings were above or below the calibrated baseline without interpreting raw numbers.
+* **The Solution:**
+  - Backend `HealthStatusResponse` already included `baseline_targets` dict
+  - Frontend reads `baseline_targets` from `/status` response
+  - `StatusCard` component accepts `baselineTarget` prop, displays "Target: X V" below the live value
+  - Visually subtle (smaller font, muted color) to avoid clutter
+* **Key Learning:** Reference values turn raw numbers into actionable context. Operators don't memorize baselines — show them inline.
+
+---
+
+## [Phase 19] - Directive B: Deep System Purge
+
+* **Context:** During demos and testing, accumulated stale data corrupted baselines and detectors. Needed a clean-slate reset.
+* **The Hurdle:** Restarting the backend only cleared in-memory state; InfluxDB retained all historical data. Manual bucket deletion required InfluxDB admin access.
+* **The Solution:**
+  - Added `POST /system/purge` endpoint in `system_routes.py`
+  - Calls `db.delete_all()` to wipe InfluxDB sensor data
+  - Clears in-memory state: `_sensor_history`, `_baselines`, `_detectors`, `_batch_detectors`
+  - Resets system to `IDLE` state
+  - Frontend: purple "Purge & Re-Calibrate" button in SystemControlPanel with confirmation dialog (prevents accidental clicks)
+* **Key Learning:** Demo/dev environments need a single-action reset. Production systems should guard this behind auth, but for development, speed of iteration wins.
+
+---
+
+## [Phase 19] - Directive C: Report Refinement
+
+* **Context:** Reports had two quality issues: Excel `Anomaly_Score` column was always empty, and operator log descriptions contained test gibberish ("asyfkk").
+* **The Hurdle:**
+  1. Anomaly scores were not computed at report download time — only at real-time ingestion
+  2. Operator log notes were stored as-is with no validation, so test entries polluted reports
+* **The Solution:**
+  - **Excel Anomaly_Score**: Computed range-check scores at report generation time by comparing each sensor value against baseline min/max bounds
+  - **Log Sanitization**: Added regex filter (`^[a-zA-Z0-9\s.,!?;:'\"-]+$`) across all 3 report formats (Excel, Basic PDF, Industrial PDF). Non-matching entries show "Maintenance event recorded" instead
+  - **Basic PDF `critical_alerts`**: Updated count to check `is_faulty`, `is_anomaly`, AND `anomaly_score > 0.7` instead of just a static value
+* **Key Learning:** Reports are the permanent record. Every column must be populated with real data, and every text field must be sanitized. Test data in production reports destroys credibility.
+
+---
