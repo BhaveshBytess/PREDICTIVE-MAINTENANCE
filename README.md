@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  Real-time sensor monitoring • Isolation Forest anomaly detection • Health scoring • PDF/Excel reporting
+  Real-time sensor monitoring • Dual Isolation Forest anomaly detection • 100Hz batch feature ML • Health scoring • PDF/Excel reporting
 </p>
 
 <p align="center">
@@ -144,24 +144,34 @@ predictive-maintenance/
 │   ├── api/                 # FastAPI routes & schemas
 │   │   ├── main.py          # Application instance
 │   │   ├── routes.py        # /ingest, /health endpoints
+│   │   ├── system_routes.py # Calibration, fault injection, monitoring
+│   │   ├── integration_routes.py # Health scoring, data history, events
+│   │   ├── operator_routes.py # Operator log endpoints
+│   │   ├── sandbox_routes.py  # What-If analysis
 │   │   └── schemas.py       # Pydantic models
-│   ├── db/                  # InfluxDB client
 │   ├── features/            # Feature engineering
-│   │   ├── calculator.py    # Rolling means, spikes, RMS
-│   │   └── engine.py        # Orchestration
-│   ├── ml/                  # Machine Learning
+│   │   ├── calculator.py    # 1Hz rolling means, spikes, RMS
+│   │   └── engine.py        # Feature extraction orchestrator
+│   ├── ml/                  # Machine Learning (Dual Model)
 │   │   ├── baseline.py      # Healthy data profiling
-│   │   ├── detector.py      # Isolation Forest
-│   │   └── validation.py    # 3-Sigma validation
+│   │   ├── detector.py      # Legacy Isolation Forest (6 features, 1Hz)
+│   │   ├── batch_features.py # 16-D batch feature extraction (100Hz)
+│   │   ├── batch_detector.py # Batch Isolation Forest (16 features)
+│   │   └── validation.py    # 3-Sigma baseline validation
+│   ├── events/              # Event Engine
+│   │   └── engine.py        # State machine (HEALTHY ↔ ANOMALY_DETECTED)
 │   ├── rules/               # Business logic
 │   │   ├── assessor.py      # Health scoring & risk
 │   │   └── explainer.py     # Human-readable explanations
-│   └── reports/             # PDF/Excel generation
-│       ├── generator.py         # Basic PDF/Excel reports
-│       ├── industrial_report.py # 5-page Industrial Health Certificate
-│       ├── constants.py         # Colors, costs, thresholds
-│       ├── mock_data.py         # Simulated historical data
-│       └── components/          # Gauge, charts, audit components
+│   ├── reports/             # PDF/Excel generation
+│   │   ├── generator.py         # Basic PDF/Excel reports
+│   │   ├── industrial_report.py # 5-page Industrial Health Certificate
+│   │   ├── constants.py         # Colors, costs, thresholds
+│   │   ├── mock_data.py         # Simulated historical data
+│   │   └── components/          # Gauge, charts, audit components
+│   └── generator/           # Digital Twin data generator
+│       ├── generator.py     # 100Hz hybrid data generator
+│       └── config.py        # NASA/IMS fault patterns
 ├── frontend/
 │   ├── src/
 │   │   ├── components/      # React components
@@ -170,14 +180,19 @@ predictive-maintenance/
 │   │   │   ├── SignalChart/
 │   │   │   ├── HealthSummary/
 │   │   │   ├── InsightPanel/
-│   │   │   └── OperatorLog/
+│   │   │   ├── OperatorLog/
+│   │   │   ├── LogWatcher/      # Real-time event feed
+│   │   │   ├── SystemControlPanel/
+│   │   │   ├── PerformanceCard/
+│   │   │   └── SandboxModal/
 │   │   ├── hooks/           # usePolling
 │   │   └── api/             # API client
 │   └── Dockerfile           # Multi-stage nginx build
-├── tests/                   # 97+ unit tests
 ├── scripts/
+│   ├── retrain_batch_model.py # Standalone batch model retraining
 │   ├── setup_linux.sh       # Bare-metal Linux setup
 │   └── backend.service      # Systemd unit file
+├── tests/                   # 97+ unit tests
 ├── docker-compose.yml       # Full stack deployment
 ├── Dockerfile               # Backend container
 └── ENGINEERING_LOG.md       # Decision journal
@@ -218,7 +233,31 @@ Response: { "status": "healthy", "db_connected": true }
 
 ## 🧠 ML Pipeline
 
-### Feature Engineering
+### Dual-Model Architecture
+
+The system runs **two Isolation Forest models** trained during calibration:
+
+| Model | Features | Input | F1 @ 0.5 | AUC-ROC | Jitter Detection |
+|-------|----------|-------|----------|---------|:---:|
+| **Legacy (v2)** | 6 | 1Hz averages | 78.1% | 1.000 | ❌ |
+| **Batch (v3)** | 16 | 100Hz windows | **99.6%** | **1.000** | ✅ |
+
+The batch model is primary for inference; the legacy model is retained for backward compatibility.
+
+### Batch Feature Engineering (100:1 Reduction)
+
+Each 1-second window of 100 raw sensor points is reduced to a 16-D statistical feature vector:
+
+| Signal | mean | std | peak_to_peak | rms |
+|--------|:---:|:---:|:---:|:---:|
+| `voltage_v` | ✅ | ✅ | ✅ | ✅ |
+| `current_a` | ✅ | ✅ | ✅ | ✅ |
+| `power_factor` | ✅ | ✅ | ✅ | ✅ |
+| `vibration_g` | ✅ | ✅ | ✅ | ✅ |
+
+**Why it matters:** A "Jitter Fault" where average vibration is 0.15g (normal) but σ=0.17g (5x healthy) is invisible to 1Hz models. The batch model catches it because `std` and `peak_to_peak` are explicit features.
+
+### Legacy Feature Engineering (1Hz)
 
 | Feature | Formula | Window |
 |---------|---------|--------|
@@ -226,14 +265,17 @@ Response: { "status": "healthy", "db_connected": true }
 | `current_spike_count` | Points > 3σ from local mean | 10-point window |
 | `power_factor_efficiency_score` | `(PF - 0.8) / 0.2 * 100` | Instantaneous |
 | `vibration_intensity_rms` | √(mean(vibration²)) | Past-only |
+| `voltage_stability` | `|V - 230.0|` | Instantaneous |
+| `power_vibration_ratio` | `vibration / (PF + 0.01)` | Instantaneous |
 
-### Anomaly Detection
+### Fault Types
 
-- **Algorithm**: Isolation Forest (sklearn)
-- **Training**: Healthy data only (validated by baseline)
-- **Scoring**: Inverted sigmoid: `score = 1 - sigmoid(decision * 4)`
-  - `0.0` = Normal
-  - `1.0` = Anomalous
+| Type | Description | Detectable By |
+|------|-------------|---------------|
+| **SPIKE** | Voltage/current surges | Both models |
+| **DRIFT** | Gradual degradation | Both models |
+| **JITTER** | Normal means, high variance | **Batch model only** |
+| **DEFAULT** | General fault pattern | Both models |
 
 ### Health Assessment
 
@@ -265,7 +307,8 @@ else:                   risk = LOW
   - Orange (25-49): HIGH risk
   - Red (0-24): CRITICAL risk
 - ⏰ **Maintenance Window estimation** (days until recommended service)
-- 💡 **Insight panel** with specific explanations (e.g., "Vibration 3.2σ above normal")
+- 💡 **Insight panel** with batch-feature explanations (e.g., "High vibration variance: σ=0.17g")
+- 📜 **Log Watcher** — real-time event feed with transition-based state machine events
 - 📥 **Download options**: 
   - **Executive PDF** — 1-page summary with Health Grade (A/B/C/D/F) for Plant Managers
   - **Multi-sheet Excel** — Summary, Operator Logs, Raw Sensor Data for Data Analysts
@@ -277,12 +320,12 @@ else:                   risk = LOW
 - When system is healthy, no anomaly markers shown
 
 **Fault Injection Controls:**
-- 🎯 **Fault Type**: Random, Spike, or Gradual Drift patterns
-- 🎚️ **Severity Levels**:
+- 🎯 **Fault Type**: Spike, Drift, Jitter, or Default patterns
+- 🏚️ **Severity Levels**:
   - 🟡 **MILD** → Targets MODERATE risk (health 50-74)
   - 🟠 **MEDIUM** → Targets HIGH risk (health 25-49)
   - 🔴 **SEVERE** → Targets CRITICAL risk (health 0-24)
-- Historical faulty data is cleared from visualization when system recovers
+- **Jitter fault**: Normal means, abnormal variance — specifically tests batch model advantage
 
 ---
 
@@ -389,7 +432,9 @@ Key architectural decisions are documented in [`ENGINEERING_LOG.md`](ENGINEERING
 - **Phase 10**: Snapshot rule for auditable reports; 5-page Industrial Certificate
 - **Phase 11**: Dual deployment (Docker + systemd)
 - **Phase 13**: Operator Log feature with InfluxDB persistence; role-specialized reports
-- **Scoring**: Blended ML + range-based scoring for graduated severity response
+- **Phase 14**: 100Hz high-frequency pipeline with server-side aggregation; event engine state machine
+- **Phase 15**: Batch ML retraining — 16-D features from 100Hz windows; JITTER fault type; F1=99.6%
+- **Scoring**: Batch-feature inference (primary) with legacy model fallback
 
 ---
 

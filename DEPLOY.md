@@ -104,11 +104,14 @@ npm run dev
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
-| `/system/calibrate` | POST | Start calibration |
-| `/system/inject-fault` | POST | Inject fault (severity: mild/medium/severe) |
+| `/system/calibrate` | POST | Start calibration (builds baseline + legacy + batch ML models) |
+| `/system/inject-fault` | POST | Inject fault (type: spike/drift/jitter, severity: mild/medium/severe) |
 | `/system/reset` | POST | Reset to idle |
+| `/system/status/{asset_id}` | GET | Get system state (calibrating/monitoring/fault) |
 | `/api/v1/status/{asset_id}` | GET | Get asset status |
-| `/api/v1/report/{asset_id}` | GET | Generate PDF report |
+| `/api/v1/data/history/{asset_id}` | GET | Get sensor history + events + health scoring |
+| `/api/v1/report/{asset_id}` | GET | Generate PDF/Excel report (format: pdf/xlsx/industrial) |
+| `/sandbox/predict` | POST | What-If analysis |
 
 ---
 

@@ -381,3 +381,66 @@
 * **Key Learning:** Design reports for specific personas. Plant Managers scan for grades; Engineers need correlation tables.
 
 ---
+
+## [Phase 14] - 100Hz High-Frequency Pipeline
+
+* **Context:** Upgrading from 1Hz polling to 100Hz raw sensor ingestion for higher-fidelity anomaly detection.
+* **The Hurdle:** InfluxDB write latency at 100pts/sec risked backpressure. Frontend would choke on 100x more data points.
+* **The Solution:** 
+  - Backend writes 100-point bursts to InfluxDB per second
+  - Flux query uses `aggregateWindow(every: 1s, fn: mean)` to deliver 1Hz data to frontend
+  - Frontend polling unchanged (3s interval, receives 1Hz aggregated data)
+* **Key Learning:** Server-side aggregation decouples ingestion frequency from display frequency. Write at full fidelity, read at whatever resolution the consumer needs.
+
+---
+
+## [Phase 14] - Event Engine State Machine
+
+* **Context:** Needed transition-based events (HEALTHY → ANOMALY_DETECTED) instead of continuous alerts.
+* **The Hurdle:** First poll during fault injection seeded `is_faulty=True` as initial state, so no transition event was emitted. Required a reset → healthy → re-inject cycle.
+* **The Solution:** Event engine uses explicit state transitions: only fires ANOMALY_DETECTED when transitioning FROM healthy TO faulty. `_build_anomaly_detected_message()` generates context-rich descriptions.
+* **Key Learning:** Transition-based architectures are cleaner than threshold-based for alerting. Only state *changes* are interesting to operators.
+
+---
+
+## [Phase 15] - Batch Feature Isolation Forest (16-D)
+
+* **Context:** Legacy Isolation Forest used 4-6 features from 1Hz averages. Could not detect "jitter" faults where averages are normal but variance is abnormal.
+* **The Hurdle:** A motor with normal mean vibration (0.15g) but high jitter (σ=0.17g) is invisible to a model that only sees 1Hz averages.
+* **The Solution:** 
+  - Extract 16 statistical features from each 100-point window: `mean`, `std`, `peak_to_peak`, `rms` × 4 signals
+  - Train a new `BatchAnomalyDetector` (IsolationForest, 150 trees) on healthy batch features
+  - Score separation improved from 0.210 (legacy) to 0.978 (batch)
+  - F1-Score improved from 78.1% to 99.6% at threshold=0.5
+* **Key Learning:** Feature engineering matters more than model complexity. Adding variance/peak-to-peak as explicit features gives a simple Isolation Forest near-perfect separation.
+
+---
+
+## [Phase 15] - JITTER Fault Type Design
+
+* **Context:** Needed a fault type that specifically tests the batch model's advantage over legacy.
+* **The Hurdle:** All existing fault types (SPIKE, DRIFT, DEFAULT) shift the mean — detectable by both legacy and batch models.
+* **The Solution:** Created `JITTER` fault type with calibrated severity:
+  ```
+  MILD:   voltage ± 8V uniform, vibration ± 0.10g  (means stay at 230V, 0.15g)
+  MEDIUM: voltage ± 15V uniform, vibration ± 0.20g
+  SEVERE: voltage ± 25V uniform, vibration ± 0.40g
+  ```
+  Normal means, abnormal within-window variance. Legacy model sees V=230V and reports HEALTHY. Batch model sees σ=14.8V and reports ANOMALY.
+* **Key Learning:** The strongest test for a new model is a synthetic adversarial case that specifically exploits the old model's blind spot.
+
+---
+
+## [Phase 15] - Batch Feature Narration in Event Engine
+
+* **Context:** Event messages needed to explain WHY batch-detected anomalies were flagged.
+* **The Hurdle:** Legacy messages ("Voltage high") don't apply when voltage mean is normal. Need to describe variance/peak-to-peak deviations.
+* **The Solution:** Updated `_build_anomaly_detected_message()` to check `_batch_features` dict:
+  ```
+  vibration_g_std > 0.06 → "High vibration variance (mechanical jitter): σ=0.17g"
+  voltage_v_peak_to_peak > 15.0 → "Voltage transient: peak-to-peak=49.0V"
+  ```
+  Top 4 deviations capped for readability. Falls back to legacy raw-signal checks if batch features absent.
+* **Key Learning:** Explainability must evolve with the model. When you change what the model detects, you must change how it explains.
+
+---

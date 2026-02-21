@@ -16,7 +16,7 @@
 ║   ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝╚══════╝║
 ║                                                                                                ║
 ║                         ╔═══════════════════════════════════╗                                  ║
-║                         ║   DIGITAL TWIN SYSTEM | v2.2.0    ║                                  ║
+║                         ║   DIGITAL TWIN SYSTEM | v3.0.0    ║                                  ║
 ║                         ╚═══════════════════════════════════╝                                  ║
 ║                                                                                                ║
 ╚════════════════════════════════════════════════════════════════════════════════════════════════╝
@@ -29,10 +29,10 @@
 | Field | Value |
 |-------|-------|
 | **Document ID** | `PM-MANIFEST-2026-001` |
-| **Version** | `2.2.0` |
+| **Version** | `3.0.0` |
 | **Status** | 🟢 **PRODUCTION** |
 | **Classification** | Internal / Portfolio |
-| **Last Updated** | 2026-01-31 |
+| **Last Updated** | 2026-02-21 |
 | **Author** | Systems Architecture Team |
 | **Review Cycle** | Quarterly |
 
@@ -67,29 +67,36 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
 
 ## 🚀 FEATURE CATALOG
 
-### Feature 1: Physics-Informed Machine Learning
+### Feature 1: Dual-Model ML Pipeline (Legacy + Batch)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    ISOLATION FOREST v2.0                        │
+│              ISOLATION FOREST v3.0 — DUAL MODEL                │
 │                                                                 │
-│   Base Features          │   Derived Features (Physics)        │
-│   ─────────────────────  │   ─────────────────────────────     │
-│   • Voltage Rolling Mean │   • Voltage Stability Index         │
-│   • Current Spike Count  │     └─ |V_actual - V_nominal|       │
-│   • Power Factor Score   │   • Power-Vibration Ratio           │
-│   • Vibration RMS        │     └─ vibration / (PF + ε)         │
-│                          │                                      │
+│   LEGACY MODEL (4+2 features, 1Hz)    BATCH MODEL (16 features)│
+│   ──────────────────────────────────   ────────────────────────  │
+│   • Voltage Rolling Mean               • voltage_v_mean         │
+│   • Current Spike Count                • voltage_v_std          │
+│   • Power Factor Score                 • voltage_v_peak_to_peak │
+│   • Vibration RMS                      • voltage_v_rms          │
+│   • Voltage Stability Index            • current_a_mean/std/p2p │
+│   • Power-Vibration Ratio              • power_factor_mean/std  │
+│                                        • vibration_g_mean/std   │
+│                                        • vibration_g_peak_to_peak│
+│                                        • vibration_g_rms        │
+│                                                                 │
 │   ┌──────────────────────────────────────────────────────┐     │
-│   │  CALIBRATION: Quantile-Based (99th Percentile)       │     │
-│   │  Threshold learned from healthy operating data       │     │
+│   │  100Hz Raw → 16-D Batch Features (100:1 Reduction)   │     │
+│   │  mean, std, peak-to-peak, RMS × 4 signals            │     │
+│   │  Trained on healthy batch windows (contamination=0.05)│     │
 │   └──────────────────────────────────────────────────────┘     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Why Physics Matters:**
-- **Voltage Stability Index**: Distance from Indian Grid nominal (230V). Detects supply issues before they cascade.
-- **Power-Vibration Ratio**: Captures the interaction between electrical efficiency and mechanical wear—a leading indicator of bearing degradation.
+**Why Batch Features Matter:**
+- **Variance Detection**: A "Jitter Fault" where average vibration is normal (0.15g) but σ spikes to 0.17g is INVISIBLE to 1Hz models. Batch model catches it because `std` is an explicit feature.
+- **Peak-to-Peak Transients**: Captures within-window oscillation amplitude — detects electrical grid instability and mechanical looseness.
+- **F1-Score**: Batch model achieves 99.6% F1 vs. legacy 78.1% at threshold 0.5.
 
 ---
 
@@ -199,28 +206,43 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
 
 ### ML Model Performance
 
-| Metric | Value | Significance |
-|--------|-------|--------------|
-| **Precision** | **90.9%** | Low false positives—maintenance teams trust the alerts |
-| **Recall** | **100.0%** | Safety-critical—NEVER misses a true fault |
-| **F1-Score** | **95.2%** | Balanced performance |
+| Metric | Legacy (1Hz, 6 features) | Batch (100Hz, 16 features) | Significance |
+|--------|:---:|:---:|------|
+| **Precision** | 64.1% | **99.2%** | Low false positives—teams trust the alerts |
+| **Recall** | 100.0% | **100.0%** | Safety-critical—NEVER misses a true fault |
+| **F1-Score** | 78.1% | **99.6%** | Near-perfect balanced performance |
+| **AUC-ROC** | 1.000 | **1.000** | Perfect ranking |
+| **Score Separation** | 0.210 | **0.978** | Clear healthy/faulty boundary |
+| **Jitter Detection** | ❌ No | ✅ **Yes** | Detects variance-only faults |
 
 ### System Performance
 
 | Operation | Latency | Notes |
 |-----------|---------|-------|
-| **ML Inference** | `<50ms` | Real-time anomaly scoring |
-| **Feature Computation** | `<20ms` | Rolling windows, RMS calculations |
+| **Batch Feature Extraction** | `<0.1ms` | 100-point window → 16-D vector (NumPy) |
+| **ML Inference (Batch)** | `<1ms` | IsolationForest on 16-D scaled input |
+| **ML Inference (Legacy)** | `<50ms` | 6-feature Isolation Forest |
+| **Data Ingestion** | `100 Hz` | 100 raw points/second to InfluxDB |
+| **Server-Side Aggregation** | `<5ms` | `aggregateWindow(1s, mean)` Flux query |
 | **PDF Generation** | `~1.2s` | 5-page Industrial Certificate |
-| **Dashboard Update** | `2 Hz` | Smooth real-time visualization |
+| **Dashboard Update** | `3s poll` | 1Hz aggregated data delivery |
 | **API Response (p99)** | `<100ms` | All endpoints |
 
-### Fault Detection Accuracy by Severity
+### Fault Detection Accuracy by Type (Batch Model)
+
+| Fault Type | Description | Detection Rate |
+|------------|-------------|----------------|
+| 🔴 **SPIKE** | Voltage/current surges | 100.0% |
+| 🟠 **DRIFT** | Gradual degradation | 100.0% |
+| 🟡 **JITTER** | Normal means, high variance | 100.0% |
+| 🔵 **MIXED** | Random combination | 100.0% |
+
+### Fault Detection by Severity
 
 | Severity | Target Risk | Detection Rate |
 |----------|-------------|----------------|
-| 🟡 MILD | MODERATE | 94.2% |
-| 🟠 MEDIUM | HIGH | 97.8% |
+| 🟡 MILD | MODERATE | 98.8% |
+| 🟠 MEDIUM | HIGH | 99.6% |
 | 🔴 SEVERE | CRITICAL | 100.0% |
 
 ---
@@ -235,7 +257,7 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
 | | Recharts | 2.x | Real-time data visualization |
 | | Vite | 5.x | Build tool & dev server |
 | | CSS Modules | - | Scoped styling (Glassmorphism) |
-| **Backend** | Python | 3.11+ | Core runtime |
+| **Backend** | Python | 3.10+ | Core runtime |
 | | FastAPI | 0.100+ | Async REST API |
 | | Pydantic | 2.x | Schema validation & settings |
 | | scikit-learn | 1.3+ | Isolation Forest ML |
@@ -251,7 +273,7 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           PREDICTIVE MAINTENANCE SYSTEM                     │
-│                              Architecture v2.1                              │
+│                              Architecture v3.0                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 
     ┌──────────────┐
@@ -278,11 +300,11 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
            │             └─────────────────────────────────────────────────┘
            ▼
     ┌──────────────┐     ┌─────────────────────────────────────────────────┐
-    │  ISOLATION   │────▶│  ANOMALY DETECTION                              │
-    │   FOREST     │     │  • Trained on healthy baseline only             │
-    │    (ML)      │     │  • 6 features, StandardScaler normalized        │
-    └──────┬───────┘     │  • Quantile calibration (99th percentile)       │
-           │             │  • Blended scoring: 60% range + 40% ML          │
+    │  ISOLATION   │────▶│  ANOMALY DETECTION (Dual Model)                 │
+    │   FOREST     │     │  • Legacy: 6 features from 1Hz averages         │
+    │    (ML)      │     │  • Batch: 16 features from 100Hz windows        │
+    └──────┬───────┘     │  • 100:1 reduction (mean/std/p2p/RMS × 4 sigs) │
+           │             │  • Quantile calibration (99th percentile)       │
            │             └─────────────────────────────────────────────────┘
            ▼
     ┌──────────────┐     ┌─────────────────────────────────────────────────┐
@@ -399,7 +421,7 @@ docker-compose up --build
 <p align="center">
   <strong>PREDICTIVE MAINTENANCE SYSTEM</strong><br>
   <em>Digital Twin for Industrial Asset Intelligence</em><br>
-  <code>v2.2.0 | January 2026 | Production</code>
+  <code>v3.0.0 | February 2026 | Production</code>
 </p>
 
 <p align="center">
