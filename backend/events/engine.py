@@ -46,14 +46,60 @@ SEVERITY_CRITICAL = "critical"
 def _build_anomaly_detected_message(sensor_data: Optional[Dict[str, Any]] = None) -> str:
     """
     Build a plain-English explanation for an ANOMALY_DETECTED event.
-    Inspects the sensor reading to identify which signals are abnormal.
+    Inspects both raw sensor averages AND batch statistical features
+    (Phase 5) to identify which signals are abnormal and WHY.
     """
     if not sensor_data:
         return "ANOMALY: Sensor readings have deviated from the established baseline."
 
-    # Check which signals are in anomalous range
     deviations = []
 
+    # ── Phase 5: Check batch statistical features first (more descriptive) ──
+    batch_feats = sensor_data.get("_batch_features")
+    if batch_feats:
+        # Vibration variance (noise / jitter detection)
+        vib_std = batch_feats.get("vibration_g_std", 0.0)
+        if vib_std > 0.06:   # healthy σ ≈ 0.02
+            deviations.append(
+                f"High vibration variance (mechanical jitter): σ={vib_std:.4f}g"
+            )
+        
+        # Vibration peak-to-peak (transient spikes)
+        vib_p2p = batch_feats.get("vibration_g_peak_to_peak", 0.0)
+        if vib_p2p > 0.25:   # healthy p2p ≈ 0.10
+            deviations.append(
+                f"Vibration transient spike: peak-to-peak={vib_p2p:.3f}g"
+            )
+        
+        # Voltage variance (grid instability)
+        volt_std = batch_feats.get("voltage_v_std", 0.0)
+        if volt_std > 5.0:    # healthy σ ≈ 2.0
+            deviations.append(
+                f"High voltage variance (grid instability): σ={volt_std:.2f}V"
+            )
+        
+        # Voltage peak-to-peak
+        volt_p2p = batch_feats.get("voltage_v_peak_to_peak", 0.0)
+        if volt_p2p > 15.0:   # healthy p2p ≈ 8.0
+            deviations.append(
+                f"Voltage transient: peak-to-peak={volt_p2p:.1f}V"
+            )
+        
+        # Current variance
+        curr_std = batch_feats.get("current_a_std", 0.0)
+        if curr_std > 3.0:    # healthy σ ≈ 1.0
+            deviations.append(
+                f"Current draw instability: σ={curr_std:.2f}A"
+            )
+        
+        # Power factor variance
+        pf_std = batch_feats.get("power_factor_std", 0.0)
+        if pf_std > 0.04:    # healthy σ ≈ 0.01
+            deviations.append(
+                f"Power factor oscillating (load instability): σ={pf_std:.4f}"
+            )
+
+    # ── Legacy: Also check raw signal averages for non-batch faults ──
     voltage = sensor_data.get("voltage_v")
     if voltage is not None and (voltage > 240 or voltage < 220):
         direction = "spike" if voltage > 240 else "drop"
@@ -73,7 +119,8 @@ def _build_anomaly_detected_message(sensor_data: Optional[Dict[str, Any]] = None
         deviations.append(f"Vibration spike ({vibration:.3f}g) — possible bearing wear")
 
     if deviations:
-        return "ANOMALY: " + "; ".join(deviations) + "."
+        # Limit to top 4 for readability
+        return "ANOMALY: " + "; ".join(deviations[:4]) + "."
     return "ANOMALY: Sensor readings have deviated from the established baseline."
 
 

@@ -27,6 +27,12 @@ from .detector import (
     AnomalyScore,
     FEATURE_COLUMNS,
 )
+from .batch_features import (
+    extract_batch_features,
+    extract_multi_window_features,
+    BATCH_FEATURE_NAMES,
+)
+from .batch_detector import BatchAnomalyDetector
 
 __all__ = [
     "BaselineProfile",
@@ -43,4 +49,8 @@ __all__ = [
     "AnomalyDetector",
     "AnomalyScore",
     "FEATURE_COLUMNS",
+    "extract_batch_features",
+    "extract_multi_window_features",
+    "BATCH_FEATURE_NAMES",
+    "BatchAnomalyDetector",
 ]

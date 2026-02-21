@@ -535,11 +535,20 @@ async def get_data_history(
     if history:
         latest = history[-1]
         is_faulty = latest.get("is_faulty", False)
+        
+        # Phase 5: Enrich sensor_snapshot with batch features from in-memory history
+        # The fault injection / monitoring loops store _batch_features on the last reading
+        sensor_snapshot = dict(latest)
+        if asset_id in _sensor_history and _sensor_history[asset_id]:
+            mem_latest = _sensor_history[asset_id][-1]
+            if "_batch_features" in mem_latest:
+                sensor_snapshot["_batch_features"] = mem_latest["_batch_features"]
+        
         events = event_engine.evaluate(
             asset_id=asset_id,
             is_faulty=is_faulty,
             timestamp=latest.get("timestamp"),
-            sensor_snapshot=latest,
+            sensor_snapshot=sensor_snapshot,
         )
         if events:
             logger.info(f"[EventEngine] {asset_id}: emitted {events[0]['type']}")

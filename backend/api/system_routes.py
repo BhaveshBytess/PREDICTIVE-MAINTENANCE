@@ -23,7 +23,12 @@ from backend.api.integration_routes import (
     BaselineBuilder, AnomalyDetector
 )
 from backend.database import db
+from backend.ml.batch_features import extract_batch_features, extract_multi_window_features
+from backend.ml.batch_detector import BatchAnomalyDetector
 import pandas as pd
+
+# Batch detector storage (one per asset)
+_batch_detectors: Dict[str, BatchAnomalyDetector] = {}
 
 
 router = APIRouter(prefix="/system", tags=["System Control"])
@@ -45,6 +50,7 @@ class FaultType(str, Enum):
     """Types of faults that can be injected."""
     SPIKE = "SPIKE"       # Sudden extreme values
     DRIFT = "DRIFT"       # Gradual degradation
+    JITTER = "JITTER"     # Normal averages but high variance / noise
     DEFAULT = "DEFAULT"   # Current random fault behavior
 
 
@@ -227,10 +233,30 @@ def generate_sensor_reading(
     - MILD: Just outside baseline → MODERATE risk (health 50-74)
     - MEDIUM: Moderately outside → HIGH risk (health 25-49)  
     - SEVERE: Far outside → CRITICAL risk (health 0-24)
+    
+    JITTER fault type: Produces normal AVERAGES but abnormal VARIANCE.
+    Individual readings oscillate wildly around the healthy mean.
+    The old 1Hz average model misses this; the batch-feature model catches it.
     """
     import random
     
-    if is_faulty:
+    if is_faulty and fault_type == FaultType.JITTER:
+        # ── JITTER FAULT: average looks healthy, variance is extreme ──
+        # Severity controls how wild the oscillation is
+        jitter_config = {
+            FaultSeverity.MILD:   {"v_jitter": 8,  "c_jitter": 2,  "pf_jitter": 0.06, "vib_jitter": 0.10},
+            FaultSeverity.MEDIUM: {"v_jitter": 15, "c_jitter": 4,  "pf_jitter": 0.10, "vib_jitter": 0.20},
+            FaultSeverity.SEVERE: {"v_jitter": 25, "c_jitter": 7,  "pf_jitter": 0.15, "vib_jitter": 0.40},
+        }
+        jcfg = jitter_config[severity]
+        
+        # Means are HEALTHY, but each point deviates wildly (high std)
+        voltage = 230.0 + random.uniform(-jcfg["v_jitter"], jcfg["v_jitter"])
+        current = 15.0 + random.uniform(-jcfg["c_jitter"], jcfg["c_jitter"])
+        power_factor = 0.92 + random.uniform(-jcfg["pf_jitter"], jcfg["pf_jitter"])
+        vibration = max(0.05, 0.15 + random.uniform(-jcfg["vib_jitter"], jcfg["vib_jitter"]))
+        
+    elif is_faulty:
         # Severity multipliers for how far outside baseline
         # MILD = just crossing the boundary, SEVERE = way beyond
         severity_config = {
@@ -381,7 +407,7 @@ def run_calibration(asset_id: str):
         baseline = builder.build(df, asset_id=asset_id)
         _baselines[asset_id] = baseline
         
-        # Phase 3: Train anomaly detector on full dataset
+        # Phase 3: Train LEGACY anomaly detector (backward compat)
         _state_manager.set_state(SystemState.CALIBRATING, "Training anomaly model on 1,000 samples...")
         
         from backend.features.calculator import compute_all_features
@@ -402,6 +428,21 @@ def run_calibration(asset_id: str):
             detector.train(feature_df)
             _detectors[asset_id] = detector
         
+        # Phase 3b: Train BATCH FEATURE detector (Phase 5 — 100Hz statistical features)
+        _state_manager.set_state(
+            SystemState.CALIBRATING,
+            "Training batch-feature model (16-D statistical features)..."
+        )
+        
+        batch_feature_rows = extract_multi_window_features(burst_data, window_size=100)
+        if len(batch_feature_rows) >= 10:
+            batch_det = BatchAnomalyDetector(asset_id=asset_id)
+            batch_det.train(batch_feature_rows)
+            _batch_detectors[asset_id] = batch_det
+            print(f"[SYSTEM] BatchDetector trained on {len(batch_feature_rows)} windows (16-D features)")
+        else:
+            print(f"[SYSTEM] WARNING: Only {len(batch_feature_rows)} batch windows — need 10+ for training")
+        
         # CALIBRATION COMPLETE
         _state_manager.set_state(
             SystemState.MONITORING_HEALTHY,
@@ -409,43 +450,52 @@ def run_calibration(asset_id: str):
         )
         
         # Continue generating healthy monitoring data with metrics tracking
-        # Phase 2.2: 100 Hz batch ingestion - 100 points per second
-        # FIXED: Using explicit integer millisecond timestamps to prevent collision
+        # Phase 5: Batch feature inference — extract features from 100 raw points,
+        # run through BatchAnomalyDetector, set is_faulty based on score
         while not _state_manager.should_stop():
             if _state_manager.state != SystemState.MONITORING_HEALTHY:
                 break
             
             # Batch: Generate 100 points with 10ms spacing
-            # CRITICAL: Use integer ms since epoch, NOT datetime objects
             batch_payload = []
+            raw_batch = []
             base_ms = int(time.time() * 1000)
             
             for i in range(100):
                 reading = generate_sensor_reading(asset_id, is_faulty=False)
-                # Each point is 10ms apart (100 points = 1 second)
                 ts_ms = base_ms + (i * 10)
-                # Store ISO string for in-memory history (frontend display)
                 reading["timestamp"] = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
-                
-                # Auto-detect anomaly against baseline
-                is_anomaly = False
-                if asset_id in _baselines:
-                    bl = _baselines[asset_id]
-                    for signal_name, value in [('voltage_v', reading['voltage_v']),
-                                               ('current_a', reading['current_a']),
-                                               ('power_factor', reading['power_factor']),
-                                               ('vibration_g', reading['vibration_g'])]:
-                        if signal_name in bl.signal_profiles:
-                            profile = bl.signal_profiles[signal_name]
-                            tolerance = (profile.max - profile.min) * 0.1
-                            if value < (profile.min - tolerance) or value > (profile.max + tolerance):
-                                is_anomaly = True
-                                break
-                
-                reading["is_faulty"] = is_anomaly
+                raw_batch.append(reading)
+            
+            # PHASE 5: Batch-feature anomaly detection (replaces per-point range check)
+            is_batch_anomaly = False
+            if asset_id in _batch_detectors and _batch_detectors[asset_id].is_trained:
+                try:
+                    batch_score = _batch_detectors[asset_id].score_raw_batch(raw_batch)
+                    is_batch_anomaly = batch_score > 0.65
+                except Exception:
+                    is_batch_anomaly = False
+            elif asset_id in _baselines:
+                # Fallback to range check if no batch detector
+                bl = _baselines[asset_id]
+                latest = raw_batch[-1]
+                for signal_name, value in [('voltage_v', latest['voltage_v']),
+                                           ('current_a', latest['current_a']),
+                                           ('power_factor', latest['power_factor']),
+                                           ('vibration_g', latest['vibration_g'])]:
+                    if signal_name in bl.signal_profiles:
+                        profile = bl.signal_profiles[signal_name]
+                        tolerance = (profile.max - profile.min) * 0.1
+                        if value < (profile.min - tolerance) or value > (profile.max + tolerance):
+                            is_batch_anomaly = True
+                            break
+            
+            # Stamp all points in this batch with the batch-level verdict
+            for i, reading in enumerate(raw_batch):
+                ts_ms = base_ms + (i * 10)
+                reading["is_faulty"] = is_batch_anomaly
                 _sensor_history[asset_id].append(reading)
                 
-                # Build batch point for InfluxDB with explicit integer timestamp
                 batch_payload.append({
                     "tags": {
                         "asset_id": asset_id,
@@ -457,13 +507,12 @@ def run_calibration(asset_id: str):
                         "current_a": reading["current_a"],
                         "power_factor": reading["power_factor"],
                         "vibration_g": reading["vibration_g"],
-                        "is_faulty": is_anomaly,
+                        "is_faulty": is_batch_anomaly,
                     },
-                    "timestamp_ms": ts_ms  # Explicit integer ms since epoch
+                    "timestamp_ms": ts_ms
                 })
                 
-                # TRACK HEALTHY STABILITY METRIC
-                _state_manager.record_healthy_classification(is_low_risk=(not is_anomaly))
+                _state_manager.record_healthy_classification(is_low_risk=(not is_batch_anomaly))
             
             # Write batch of 100 points in single API call
             db.write_batch(measurement="sensor_events", points=batch_payload)
@@ -480,10 +529,10 @@ def run_calibration(asset_id: str):
 
 
 def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSeverity):
-    """Background task: Generate faulty sensor data with metrics tracking.
+    """Background task: Generate faulty sensor data with batch-feature ML detection.
     
-    Phase 2.2: 100 Hz batch ingestion - 100 points per second.
-    FIXED: Using explicit integer millisecond timestamps to prevent collision.
+    Phase 5: Uses BatchAnomalyDetector for inference on each 1-second window.
+    This enables detection of JITTER faults (normal means, abnormal variance).
     """
     try:
         while not _state_manager.should_stop():
@@ -491,8 +540,8 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                 break
             
             # Batch: Generate 100 points with 10ms spacing
-            # CRITICAL: Use integer ms since epoch, NOT datetime objects
             batch_payload = []
+            raw_batch = []
             base_ms = int(time.time() * 1000)
             
             for i in range(100):
@@ -502,33 +551,44 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                     fault_type=fault_type,
                     severity=severity
                 )
-                # Each point is 10ms apart (100 points = 1 second)
                 ts_ms = base_ms + (i * 10)
-                # Store ISO string for in-memory history (frontend display)
                 reading["timestamp"] = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
-                
-                # Auto-detect against baseline using same tolerance as scoring (50%)
-                is_anomaly = True  # Default to True for fault injection - it SHOULD be detected
-                if asset_id in _baselines:
-                    bl = _baselines[asset_id]
-                    for signal_name, value in [('voltage_v', reading['voltage_v']),
-                                               ('current_a', reading['current_a']),
-                                               ('power_factor', reading['power_factor']),
-                                               ('vibration_g', reading['vibration_g'])]:
-                        if signal_name in bl.signal_profiles:
-                            profile = bl.signal_profiles[signal_name]
-                            range_size = profile.max - profile.min
-                            tolerance = range_size * 0.5
-                            lower_bound = profile.min - tolerance
-                            upper_bound = profile.max + tolerance
-                            if value < lower_bound or value > upper_bound:
-                                is_anomaly = True
-                                break
-                
+                raw_batch.append(reading)
+            
+            # PHASE 5: Batch-feature anomaly detection
+            is_anomaly = True  # Default for fault injection
+            batch_features = None
+            if asset_id in _batch_detectors and _batch_detectors[asset_id].is_trained:
+                try:
+                    batch_features = extract_batch_features(raw_batch)
+                    batch_score = _batch_detectors[asset_id].score_batch(batch_features)
+                    is_anomaly = batch_score > 0.5  # Lower threshold for fault detection
+                except Exception:
+                    is_anomaly = True
+            elif asset_id in _baselines:
+                # Fallback to range check
+                bl = _baselines[asset_id]
+                latest = raw_batch[-1]
+                for signal_name, value in [('voltage_v', latest['voltage_v']),
+                                           ('current_a', latest['current_a']),
+                                           ('power_factor', latest['power_factor']),
+                                           ('vibration_g', latest['vibration_g'])]:
+                    if signal_name in bl.signal_profiles:
+                        profile = bl.signal_profiles[signal_name]
+                        range_size = profile.max - profile.min
+                        tolerance = range_size * 0.5
+                        if value < (profile.min - tolerance) or value > (profile.max + tolerance):
+                            is_anomaly = True
+                            break
+            
+            # Store batch features in the last reading for event engine narration
+            for i, reading in enumerate(raw_batch):
+                ts_ms = base_ms + (i * 10)
                 reading["is_faulty"] = is_anomaly
+                if i == len(raw_batch) - 1 and batch_features:
+                    reading["_batch_features"] = batch_features
                 _sensor_history[asset_id].append(reading)
                 
-                # Build batch point for InfluxDB with explicit integer timestamp
                 batch_payload.append({
                     "tags": {
                         "asset_id": asset_id,
@@ -544,10 +604,9 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                         "vibration_g": reading["vibration_g"],
                         "is_faulty": is_anomaly,
                     },
-                    "timestamp_ms": ts_ms  # Explicit integer ms since epoch
+                    "timestamp_ms": ts_ms
                 })
                 
-                # TRACK FAULT CAPTURE RATE METRIC
                 _state_manager.record_faulty_classification(is_high_risk=is_anomaly)
             
             # Write batch of 100 points in single API call
@@ -694,46 +753,50 @@ async def reset_system(
         "System reset. Monitoring healthy operation (True Recovery)."
     )
     
-    # Start healthy monitoring with PROPER anomaly detection (True Recovery)
-    # Phase 2.2: 100 Hz batch ingestion - 100 points per second
-    # FIXED: Using explicit integer millisecond timestamps to prevent collision
+    # Start healthy monitoring with Phase 5 batch-feature inference
     def resume_healthy_monitoring():
-        """Generate healthy data with proper baseline comparison for natural recovery."""
+        """Generate healthy data with batch-feature ML detection for natural recovery."""
         while not _state_manager.should_stop():
             if _state_manager.state != SystemState.MONITORING_HEALTHY:
                 break
             
-            # Batch: Generate 100 points with 10ms spacing
-            # CRITICAL: Use integer ms since epoch, NOT datetime objects
             batch_payload = []
+            raw_batch = []
             base_ms = int(time.time() * 1000)
             
             for i in range(100):
                 reading = generate_sensor_reading(asset_id, is_faulty=False)
-                # Each point is 10ms apart (100 points = 1 second)
                 ts_ms = base_ms + (i * 10)
-                # Store ISO string for in-memory history (frontend display)
                 reading["timestamp"] = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
-                
-                # TRUE RECOVERY: Check against baseline (don't hardcode is_faulty)
-                is_anomaly = False
-                if asset_id in _baselines:
-                    bl = _baselines[asset_id]
-                    for signal_name, value in [('voltage_v', reading['voltage_v']),
-                                               ('current_a', reading['current_a']),
-                                               ('power_factor', reading['power_factor']),
-                                               ('vibration_g', reading['vibration_g'])]:
-                        if signal_name in bl.signal_profiles:
-                            profile = bl.signal_profiles[signal_name]
-                            tolerance = (profile.max - profile.min) * 0.1
-                            if value < (profile.min - tolerance) or value > (profile.max + tolerance):
-                                is_anomaly = True
-                                break
-                
+                raw_batch.append(reading)
+            
+            # Phase 5: Batch-feature anomaly detection
+            is_anomaly = False
+            if asset_id in _batch_detectors and _batch_detectors[asset_id].is_trained:
+                try:
+                    batch_score = _batch_detectors[asset_id].score_raw_batch(raw_batch)
+                    is_anomaly = batch_score > 0.65
+                except Exception:
+                    is_anomaly = False
+            elif asset_id in _baselines:
+                bl = _baselines[asset_id]
+                latest = raw_batch[-1]
+                for signal_name, value in [('voltage_v', latest['voltage_v']),
+                                           ('current_a', latest['current_a']),
+                                           ('power_factor', latest['power_factor']),
+                                           ('vibration_g', latest['vibration_g'])]:
+                    if signal_name in bl.signal_profiles:
+                        profile = bl.signal_profiles[signal_name]
+                        tolerance = (profile.max - profile.min) * 0.1
+                        if value < (profile.min - tolerance) or value > (profile.max + tolerance):
+                            is_anomaly = True
+                            break
+            
+            for i, reading in enumerate(raw_batch):
+                ts_ms = base_ms + (i * 10)
                 reading["is_faulty"] = is_anomaly
                 _sensor_history[asset_id].append(reading)
                 
-                # Build batch point for InfluxDB with explicit integer timestamp
                 batch_payload.append({
                     "tags": {
                         "asset_id": asset_id,
@@ -747,7 +810,7 @@ async def reset_system(
                         "vibration_g": reading["vibration_g"],
                         "is_faulty": is_anomaly,
                     },
-                    "timestamp_ms": ts_ms  # Explicit integer ms since epoch
+                    "timestamp_ms": ts_ms
                 })
             
             # Write batch of 100 points in single API call
