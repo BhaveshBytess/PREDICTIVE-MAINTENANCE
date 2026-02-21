@@ -7,7 +7,7 @@
  * - Right: Health Summary + Insights + Operator Log + Download
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import styles from './App.module.css'
 
 // Components
@@ -20,6 +20,7 @@ import OperatorLog from './components/OperatorLog/OperatorLog'
 import SystemControlPanel from './components/SystemControlPanel'
 import PerformanceCard from './components/PerformanceCard'
 import SandboxModal from './components/SandboxModal'
+import LogWatcher from './components/LogWatcher/LogWatcher'
 
 // API
 import { fetchHealthStatus, fetchDataHistory, getReportUrl, buildBaseline, checkApiHealth } from './api/client'
@@ -44,6 +45,11 @@ function App() {
     })
     const [isSandboxOpen, setIsSandboxOpen] = useState(false)
     const [logsRefreshTrigger, setLogsRefreshTrigger] = useState(0)
+
+    // Phase 2: Event Engine — accumulated events buffer + chart correlation
+    const [eventLog, setEventLog] = useState([])
+    const [selectedTimestamp, setSelectedTimestamp] = useState(null)
+    const EVENT_BUFFER_CAP = 50
 
     // Callback when a new operator log is added - triggers chart refresh
     const handleLogAdded = useCallback(() => {
@@ -93,6 +99,14 @@ function App() {
                 // PHASE 1A: anomalyPoints no longer used (anomaly flag is now per-point)
                 // Clear legacy index-based anomaly array
                 setAnomalyPoints([])
+
+                // Phase 2: Accumulate events from backend into buffer (cap at 50)
+                if (history.events && history.events.length > 0) {
+                    setEventLog(prev => {
+                        const merged = [...prev, ...history.events]
+                        return merged.slice(-EVENT_BUFFER_CAP)
+                    })
+                }
             }
         } catch (error) {
             console.error('Error fetching data:', error)
@@ -143,14 +157,24 @@ function App() {
                         />
                     </div>
 
-                    {/* Chart */}
-                    <div className={styles.chartSection}>
-                        <SignalChart
-                            data={chartData}
-                            anomalyIndices={anomalyPoints}
-                            title="Real-time Power Signature (Last 60 readings)"
-                            refreshTrigger={logsRefreshTrigger}
-                        />
+                    {/* Chart + LogWatcher — 60/40 side-by-side */}
+                    <div className={styles.chartLogRow}>
+                        <div className={styles.chartSection}>
+                            <SignalChart
+                                data={chartData}
+                                anomalyIndices={anomalyPoints}
+                                title="Real-time Power Signature (Last 60 readings)"
+                                refreshTrigger={logsRefreshTrigger}
+                                selectedTimestamp={selectedTimestamp}
+                            />
+                        </div>
+                        <div className={styles.logSection}>
+                            <LogWatcher
+                                events={eventLog}
+                                selectedTimestamp={selectedTimestamp}
+                                onSelectEvent={setSelectedTimestamp}
+                            />
+                        </div>
                     </div>
                 </div>
 

@@ -43,6 +43,19 @@
     padding: var(--spacing-md);
 }
 
+/* Chart + LogWatcher side-by-side row */
+.chartLogRow {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: var(--spacing-md);
+    min-height: 480px;
+}
+
+/* Log Watcher section inside the row */
+.logSection {
+    min-height: 0; /* allow flex shrink for scroll */
+}
+
 /* Right Sidebar */
 .sidebar {
     display: flex;
@@ -141,5 +154,9 @@
 
     .main {
         padding: var(--spacing-md);
+    }
+
+    .chartLogRow {
+        grid-template-columns: 1fr;
     }
 }

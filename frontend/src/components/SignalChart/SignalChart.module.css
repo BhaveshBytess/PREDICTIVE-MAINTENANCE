@@ -52,6 +52,13 @@
     font-size: 1rem;
 }
 
+.legendCorrelation {
+    width: 16px;
+    height: 3px;
+    background: #fbbf24;
+    border-radius: 2px;
+}
+
 /* Maintenance Logs List */
 .maintenanceList {
     margin-top: var(--spacing-lg);

@@ -129,7 +129,7 @@ const MaintenanceTooltip = ({ active, payload }) => {
 }
 
 // PHASE 1A: anomalyIndices prop is DEPRECATED - anomalies are now per-point via is_anomaly field
-function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
+function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, selectedTimestamp = null }) {
     const [maintenanceLogs, setMaintenanceLogs] = useState([])
     const [logsLoading, setLogsLoading] = useState(false)
 
@@ -304,6 +304,23 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
                             />
                         ))}
 
+                        {/* Explainability Link — correlation line from LogWatcher click */}
+                        {selectedTimestamp && (
+                            <ReferenceLine
+                                x={selectedTimestamp}
+                                stroke="#fbbf24"
+                                strokeWidth={2}
+                                strokeDasharray="6 3"
+                                label={{
+                                    value: '📌 Event',
+                                    position: 'insideTopRight',
+                                    fill: '#fbbf24',
+                                    fontSize: 11,
+                                    fontWeight: 600
+                                }}
+                            />
+                        )}
+
                         <Line
                             type="monotone"
                             dataKey="value"
@@ -334,6 +351,12 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0 }) {
                     <span className={styles.legendMaintenance}>🔧</span>
                     <span>Maintenance Log ({maintenanceMarkers.length} on chart{maintenanceLogs.length > maintenanceMarkers.length ? `, ${maintenanceLogs.length} total` : ''})</span>
                 </div>
+                {selectedTimestamp && (
+                    <div className={styles.legendItem}>
+                        <span className={styles.legendCorrelation}></span>
+                        <span>Selected Event</span>
+                    </div>
+                )}
             </div>
 
             {/* Maintenance logs list below chart */}
