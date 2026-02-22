@@ -367,26 +367,6 @@ All risk levels have been tested with real sensor data:
 | **HIGH** | 25-49 | ✅ Yes + ⚠️ | ~4 days | ✅ Pass |
 | **CRITICAL** | 0-24 | ✅ Yes + ⚠️ | < 1 day | ✅ Pass |
 
-### 📸 Demo Screenshots
-
-<table>
-<tr>
-<td align="center"><strong>LOW Risk (Healthy)</strong><br>No anomaly lines</td>
-<td align="center"><strong>MODERATE Risk</strong><br>Lines at anomalies</td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/low_risk.png" width="400"/></td>
-<td><img src="docs/screenshots/moderate_risk.png" width="400"/></td>
-</tr>
-<tr>
-<td align="center"><strong>HIGH Risk</strong><br>Multiple alerts</td>
-<td align="center"><strong>CRITICAL Risk</strong><br>Immediate action needed</td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/high_risk.png" width="400"/></td>
-<td><img src="docs/screenshots/critical_risk.png" width="400"/></td>
-</tr>
-</table>
 
 ## 🧪 Testing
 
