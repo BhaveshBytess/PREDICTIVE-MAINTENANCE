@@ -2,18 +2,52 @@
  * System Control API Client
  * 
  * Provides functions for system lifecycle control endpoints.
+ * Includes retry logic for industrial-grade resilience.
  */
 
 import { API_URL } from '../config'
 
 const API_BASE = API_URL;
 
+/** Default timeout for system control requests (ms) */
+const REQUEST_TIMEOUT_MS = 10_000;
+
+/** Retry config */
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1000;
+
+/**
+ * Fetch with timeout + automatic retry.
+ * Industrial networks are jittery; a single transient failure should not
+ * surface a red error box to the operator.
+ */
+async function resilientFetch(url, options = {}, retries = MAX_RETRIES) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+            const response = await fetch(url, { ...options, signal: controller.signal });
+            clearTimeout(timer);
+            return response;
+        } catch (err) {
+            clearTimeout(timer);
+            const isLast = attempt === retries;
+            if (isLast) throw err;
+            console.warn(
+                `[systemApi] Request failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${RETRY_DELAY_MS}ms...`,
+                err.message
+            );
+            await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+        }
+    }
+}
+
 /**
  * Get current system state
  * @returns {Promise<{state: string, message: string, started_at: string|null, fault_type: string|null}>}
  */
 export async function getSystemState() {
-    const response = await fetch(`${API_BASE}/system/state`);
+    const response = await resilientFetch(`${API_BASE}/system/state`);
     if (!response.ok) {
         throw new Error('Failed to get system state');
     }
@@ -26,7 +60,7 @@ export async function getSystemState() {
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
 export async function calibrateSystem(assetId = 'Motor-01') {
-    const response = await fetch(`${API_BASE}/system/calibrate?asset_id=${assetId}`, {
+    const response = await resilientFetch(`${API_BASE}/system/calibrate?asset_id=${assetId}`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -44,7 +78,7 @@ export async function calibrateSystem(assetId = 'Motor-01') {
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
 export async function injectFault(assetId = 'Motor-01', faultType = 'DEFAULT', severity = 'SEVERE') {
-    const response = await fetch(
+    const response = await resilientFetch(
         `${API_BASE}/system/inject-fault?asset_id=${assetId}&fault_type=${faultType}&severity=${severity}`,
         { method: 'POST' }
     );
@@ -61,7 +95,7 @@ export async function injectFault(assetId = 'Motor-01', faultType = 'DEFAULT', s
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
 export async function resetSystem(assetId = 'Motor-01') {
-    const response = await fetch(`${API_BASE}/system/reset?asset_id=${assetId}`, {
+    const response = await resilientFetch(`${API_BASE}/system/reset?asset_id=${assetId}`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -76,7 +110,7 @@ export async function resetSystem(assetId = 'Motor-01') {
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
 export async function stopSession() {
-    const response = await fetch(`${API_BASE}/system/stop`, {
+    const response = await resilientFetch(`${API_BASE}/system/stop`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -92,7 +126,7 @@ export async function stopSession() {
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
 export async function purgeSystem() {
-    const response = await fetch(`${API_BASE}/system/purge`, {
+    const response = await resilientFetch(`${API_BASE}/system/purge`, {
         method: 'POST',
     });
     if (!response.ok) {

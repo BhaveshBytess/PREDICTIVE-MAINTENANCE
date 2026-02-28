@@ -56,45 +56,69 @@ SEVERITY_FLOOR = {
 
 _HYDRATION_TIMEOUT_S = 5.0
 
+# Background hydration executor — single thread, reused across assets
+_hydration_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="di-hydration"
+)
+
+
+def _hydrate_from_influx(asset_id: str) -> None:
+    """
+    Background task: query InfluxDB for the latest DI and patch the cached state.
+
+    Runs in _hydration_executor so the monitoring loop is never blocked.
+    If the query fails or times out, the state keeps its default (0.0).
+    """
+    try:
+        last_di = db.query_latest_degradation_index(asset_id)
+        # Only patch if the DB value is higher (monotonicity)
+        if asset_id in _degradation_state:
+            current = _degradation_state[asset_id]["degradation_index"]
+            if last_di > current:
+                _degradation_state[asset_id]["degradation_index"] = last_di
+                print(f"[DEGRADATION] ✅ Background hydration patched {asset_id}: DI={last_di:.6f}")
+            else:
+                print(f"[DEGRADATION] ✅ Background hydration complete for {asset_id}: "
+                      f"DB={last_di:.6f}, kept current={current:.6f}")
+        _degradation_state[asset_id]["hydrated"] = True
+    except Exception as e:
+        print(
+            f"[DEGRADATION] ⚠️ Background hydration failed for {asset_id}. "
+            f"Continuing with DI={_degradation_state.get(asset_id, {}).get('degradation_index', 0.0):.6f}. "
+            f"Error: {e}"
+        )
+        # Mark hydrated anyway so we don't retry endlessly
+        if asset_id in _degradation_state:
+            _degradation_state[asset_id]["hydrated"] = True
+
 
 def _ensure_degradation_state(asset_id: str) -> Dict[str, Any]:
     """
-    Startup hydration: guarantee degradation state exists for asset_id.
+    Non-blocking startup hydration: guarantee degradation state exists for asset_id.
 
-    On first call:
-      1. Query InfluxDB for last persisted DI (survives restarts).
-      2. Fall back to 0.0 if query fails or times out (5 s hard cap).
+    Returns IMMEDIATELY with a default-zero state on first call, then fires off
+    a background thread to query InfluxDB and patch the DI if a higher value
+    is found.  This eliminates the race condition where a slow/cold InfluxDB
+    blocks the monitoring loop and causes 'Failed to Fetch' on the frontend.
 
-    Subsequent calls: return cached dict (no IO).
+    Subsequent calls: return cached dict (no IO, no threads).
     """
-    if asset_id in _degradation_state and _degradation_state[asset_id].get("hydrated"):
+    if asset_id in _degradation_state:
         return _degradation_state[asset_id]
 
-    # Hydrate from InfluxDB — strict timeout so a cold/dead DB never blocks startup
-    last_di = 0.0
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(db.query_latest_degradation_index, asset_id)
-            last_di = future.result(timeout=_HYDRATION_TIMEOUT_S)
-    except concurrent.futures.TimeoutError:
-        print(
-            f"[DEGRADATION] ⚠️ CRITICAL: Hydration query timed out after "
-            f"{_HYDRATION_TIMEOUT_S}s for {asset_id}. Defaulting to 0.0 to allow system start."
-        )
-    except Exception as e:
-        print(
-            f"[DEGRADATION] ⚠️ CRITICAL: Could not hydrate state from InfluxDB. "
-            f"Defaulting to 0.0 to allow system start. Error: {e}"
-        )
-
+    # Instant default — server stays responsive
     state = {
-        "degradation_index": last_di,
+        "degradation_index": 0.0,
         "total_cycles": 0,
         "last_damage_rate": 0.0,
-        "hydrated": True,
+        "hydrated": False,  # will flip to True when background query completes
     }
     _degradation_state[asset_id] = state
-    print(f"[DEGRADATION] Hydrated {asset_id}: DI={last_di:.6f}")
+    print(f"[DEGRADATION] Hydration started in background for {asset_id} (using DI=0.0 until complete)")
+
+    # Fire-and-forget: patch the DI asynchronously
+    _hydration_executor.submit(_hydrate_from_influx, asset_id)
+
     return state
 
 
