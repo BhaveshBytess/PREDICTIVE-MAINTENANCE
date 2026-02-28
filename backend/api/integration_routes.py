@@ -295,7 +295,7 @@ async def get_health_status(asset_id: str):
 
     # ── PHASE 20: Read DI state (primary path) ──────────────────────────
     di_state = _degradation_state.get(asset_id)
-    if di_state:
+    if di_state and di_state.get("hydrated"):
         di = di_state["degradation_index"]
         damage_rate = di_state.get("last_damage_rate", 0.0)
         total_cycles = di_state.get("total_cycles", 0)

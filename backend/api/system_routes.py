@@ -8,8 +8,6 @@ Provides lifecycle control endpoints for terminal-free demo:
 - POST /system/reset — Stop faults, return to healthy
 """
 
-import asyncio
-import logging
 import threading
 import time
 from datetime import datetime, timezone, timedelta
@@ -45,107 +43,32 @@ _batch_detectors: Dict[str, BatchAnomalyDetector] = {}
 # Keyed by asset_id. Values: {"degradation_index": float, "total_cycles": int,
 #                              "last_damage_rate": float, "hydrated": bool}
 _degradation_state: Dict[str, Dict[str, Any]] = {}
-_hydration_tasks: Dict[str, asyncio.Task] = {}  # Track background hydration tasks
-
-_logger = logging.getLogger("predictive_maintenance.system_routes")
-
-_HYDRATION_TIMEOUT_S = 5  # Max seconds to wait for InfluxDB hydration
 
 
 def _ensure_degradation_state(asset_id: str) -> Dict[str, Any]:
     """
-    Lazy, Non-Blocking Hydration (Phase 20b).
+    Startup hydration: guarantee degradation state exists for asset_id.
 
-    Returns the degradation state dict *immediately* — never blocks.
+    On first call:
+      1. Query InfluxDB for last persisted DI (survives restarts).
+      2. Fall back to 0.0 if bucket is empty or connection fails.
 
-    First call for an asset_id:
-      1. Creates state with DI=0.0, hydrated=False (instant).
-      2. Schedules a background asyncio task to query InfluxDB for the
-         last persisted DI.  If it succeeds within 5 s the in-memory
-         DI is silently patched upward.  If it fails or times out a
-         warning is logged — the server keeps running with DI=0.0.
-
-    Subsequent calls: return the cached dict (zero IO, zero latency).
+    Subsequent calls: return cached dict (no IO).
     """
-    if asset_id in _degradation_state:
+    if asset_id in _degradation_state and _degradation_state[asset_id].get("hydrated"):
         return _degradation_state[asset_id]
 
-    # ── Instant initialisation (never blocks) ──
-    state: Dict[str, Any] = {
-        "degradation_index": 0.0,
+    # Hydrate from InfluxDB
+    last_di = db.query_latest_degradation_index(asset_id)
+    state = {
+        "degradation_index": last_di,
         "total_cycles": 0,
         "last_damage_rate": 0.0,
-        "hydrated": False,  # will flip True once background recovery finishes
+        "hydrated": True,
     }
     _degradation_state[asset_id] = state
-    _logger.info("[DEGRADATION] Initialised %s with DI=0.0 (background hydration pending)", asset_id)
-    print(f"[DEGRADATION] Initialised {asset_id} with DI=0.0 (background hydration pending)")
-
-    # ── Schedule non-blocking InfluxDB recovery ──
-    try:
-        loop = asyncio.get_running_loop()
-        task = loop.create_task(_hydrate_from_influx(asset_id))
-        _hydration_tasks[asset_id] = task
-    except RuntimeError:
-        # No running event loop (e.g. unit tests) — fall back to sync
-        _sync_hydrate_fallback(asset_id)
-
+    print(f"[DEGRADATION] Hydrated {asset_id}: DI={last_di:.6f}")
     return state
-
-
-async def _hydrate_from_influx(asset_id: str) -> None:
-    """
-    Background coroutine: query InfluxDB for the last DI and silently
-    patch in-memory state.  Times out after _HYDRATION_TIMEOUT_S.
-    Never raises — errors are logged and swallowed.
-    """
-    try:
-        last_di = await asyncio.wait_for(
-            asyncio.to_thread(db.query_latest_degradation_index, asset_id),
-            timeout=_HYDRATION_TIMEOUT_S,
-        )
-        if asset_id in _degradation_state:
-            old_di = _degradation_state[asset_id]["degradation_index"]
-            # Only patch upward (monotonicity) — loops may have already
-            # advanced DI past zero while we were querying.
-            if last_di > old_di:
-                _degradation_state[asset_id]["degradation_index"] = last_di
-                _logger.info("[DEGRADATION] Hydrated %s from InfluxDB: DI=%f", asset_id, last_di)
-                print(f"[DEGRADATION] Hydrated {asset_id} from InfluxDB: DI={last_di:.6f}")
-            else:
-                _logger.info("[DEGRADATION] InfluxDB DI (%f) <= live DI (%f) for %s — kept live value", last_di, old_di, asset_id)
-                print(f"[DEGRADATION] InfluxDB DI ({last_di:.6f}) <= live DI ({old_di:.6f}) for {asset_id} — kept live value")
-            _degradation_state[asset_id]["hydrated"] = True
-    except asyncio.TimeoutError:
-        _logger.warning("[DEGRADATION] InfluxDB hydration timed out (%ds) for %s — using DI=0.0", _HYDRATION_TIMEOUT_S, asset_id)
-        print(f"[DEGRADATION] ⚠️ InfluxDB hydration timed out ({_HYDRATION_TIMEOUT_S}s) for {asset_id} — using DI=0.0")
-        if asset_id in _degradation_state:
-            _degradation_state[asset_id]["hydrated"] = True
-    except Exception as exc:
-        _logger.warning("[DEGRADATION] InfluxDB hydration failed for %s: %s — using DI=0.0", asset_id, exc)
-        print(f"[DEGRADATION] ⚠️ InfluxDB hydration failed for {asset_id}: {exc} — using DI=0.0")
-        if asset_id in _degradation_state:
-            _degradation_state[asset_id]["hydrated"] = True
-    finally:
-        _hydration_tasks.pop(asset_id, None)
-
-
-def _sync_hydrate_fallback(asset_id: str) -> None:
-    """
-    Synchronous fallback used only when no asyncio event loop is running
-    (e.g. during unit tests).  Logs and swallows errors.
-    """
-    try:
-        last_di = db.query_latest_degradation_index(asset_id)
-        if asset_id in _degradation_state and last_di > _degradation_state[asset_id]["degradation_index"]:
-            _degradation_state[asset_id]["degradation_index"] = last_di
-        if asset_id in _degradation_state:
-            _degradation_state[asset_id]["hydrated"] = True
-        print(f"[DEGRADATION] Sync-hydrated {asset_id}: DI={last_di:.6f}")
-    except Exception as exc:
-        _logger.warning("[DEGRADATION] Sync hydration failed for %s: %s", asset_id, exc)
-        if asset_id in _degradation_state:
-            _degradation_state[asset_id]["hydrated"] = True
 
 
 router = APIRouter(prefix="/system", tags=["System Control"])
@@ -1081,10 +1004,6 @@ async def purge_and_recalibrate():
     _baselines.clear()
     _detectors.clear()
     _batch_detectors.clear()
-    # Cancel any pending hydration tasks
-    for task in _hydration_tasks.values():
-        task.cancel()
-    _hydration_tasks.clear()
     _degradation_state.clear()
 
     # 4. Reset state manager
