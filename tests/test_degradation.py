@@ -13,6 +13,7 @@ import pytest
 
 from backend.rules.assessor import (
     SENSITIVITY_CONSTANT,
+    HEALTHY_FLOOR,
     DI_THRESHOLD_15,
     DI_THRESHOLD_30,
     DI_THRESHOLD_50,
@@ -39,15 +40,16 @@ class TestComputeCumulativeDegradation:
         assert rate == 0.0
 
     def test_formula_matches_spec(self):
-        """DI_inc = (severity^2) * 0.0005 for dt=1."""
-        severity = 0.8
-        expected_rate = (0.8 ** 2) * SENSITIVITY_CONSTANT  # 0.64 * 0.0005 = 0.00032
-        new_di, rate = compute_cumulative_degradation(0.0, severity)
+        """DI_inc = (effective_severity^2) * 0.0005 for dt=1, after dead-zone remap."""
+        raw_score = 0.8
+        effective = (raw_score - HEALTHY_FLOOR) / (1.0 - HEALTHY_FLOOR)
+        expected_rate = (effective ** 2) * SENSITIVITY_CONSTANT
+        new_di, rate = compute_cumulative_degradation(0.0, raw_score)
         assert abs(rate - expected_rate) < 1e-10
         assert abs(new_di - expected_rate) < 1e-10
 
     def test_max_severity_rate(self):
-        """At max severity=1.0, rate should be exactly SENSITIVITY_CONSTANT."""
+        """At max score=1.0, effective_severity=1.0, rate = SENSITIVITY_CONSTANT."""
         new_di, rate = compute_cumulative_degradation(0.0, 1.0)
         assert abs(rate - SENSITIVITY_CONSTANT) < 1e-10
 
@@ -92,6 +94,43 @@ class TestComputeCumulativeDegradation:
 
         _, rate_over = compute_cumulative_degradation(0.0, 1.5)
         assert abs(rate_over - SENSITIVITY_CONSTANT) < 1e-10  # clamped to 1.0
+
+    # ── Dead-zone tests ──
+
+    def test_dead_zone_healthy_noise_zero_damage(self):
+        """Scores below HEALTHY_FLOOR must produce EXACTLY zero damage."""
+        for score in [0.0, 0.1, 0.3, 0.5, 0.64, 0.649]:
+            new_di, rate = compute_cumulative_degradation(0.0, score)
+            assert rate == 0.0, f"score={score} should be dead-zone, got rate={rate}"
+            assert new_di == 0.0, f"score={score} should not move DI, got {new_di}"
+
+    def test_dead_zone_boundary_exact_floor(self):
+        """Score exactly at HEALTHY_FLOOR → effective_severity=0.0 → zero damage."""
+        new_di, rate = compute_cumulative_degradation(0.0, HEALTHY_FLOOR)
+        assert rate == 0.0
+        assert new_di == 0.0
+
+    def test_dead_zone_just_above_floor(self):
+        """Score just above HEALTHY_FLOOR → tiny but non-zero damage."""
+        score = HEALTHY_FLOOR + 0.01
+        new_di, rate = compute_cumulative_degradation(0.0, score)
+        assert rate > 0.0
+        assert new_di > 0.0
+
+    def test_dead_zone_remap_math(self):
+        """Verify effective_severity = (score - FLOOR) / (1 - FLOOR)."""
+        score = 0.85
+        effective = (score - HEALTHY_FLOOR) / (1.0 - HEALTHY_FLOOR)
+        expected_rate = (effective ** 2) * SENSITIVITY_CONSTANT
+        _, rate = compute_cumulative_degradation(0.0, score)
+        assert abs(rate - expected_rate) < 1e-12
+
+    def test_dead_zone_no_accumulation_over_time(self):
+        """1000 cycles of healthy noise (score=0.4) must leave DI at 0.0."""
+        di = 0.0
+        for _ in range(1000):
+            di, _ = compute_cumulative_degradation(di, 0.4)
+        assert di == 0.0
 
 
 # ============================================================================
@@ -232,31 +271,36 @@ class TestDegradationLifecycle:
     def test_healthy_to_degraded_lifecycle(self):
         """
         Simulate: 100 healthy seconds → 500 fault seconds → verify DI progression.
-        Math: 500s × (0.9^2 × 0.0005) = 500 × 0.000405 = 0.2025 DI
-        Health = (1 - 0.2025) × 100 ≈ 80 → LOW risk (above MODERATE=75)
+
+        With dead-zone (HEALTHY_FLOOR=0.65):
+        - 100s of healthy (score=0.02 < 0.65) → DI stays at 0.0  (dead-zone)
+        - 500s of fault (score=0.9) → effective = (0.9 - 0.65) / 0.35 ≈ 0.7143
+          damage_rate = (0.7143^2) * 0.0005 ≈ 0.000255
+          DI ≈ 500 * 0.000255 ≈ 0.1276
         """
         di = 0.0
 
-        # 100 seconds of healthy (score ≈ 0)
+        # 100 seconds of healthy (score=0.02 < HEALTHY_FLOOR) → zero damage
         for _ in range(100):
             di, rate = compute_cumulative_degradation(di, 0.02)
-        # Should barely move
-        assert di < 0.001
+        assert di == 0.0  # Dead-zone: exactly zero
 
-        # 500 seconds of severe fault (score ≈ 0.9)
+        # 500 seconds of severe fault (score=0.9 > HEALTHY_FLOOR)
         for _ in range(500):
             old = di
             di, rate = compute_cumulative_degradation(di, 0.9)
             assert di >= old  # Monotonicity
 
         # DI should be meaningful but not maxed
-        # 500 * (0.81 * 0.0005) ≈ 0.2025
-        assert di > 0.1
+        effective = (0.9 - HEALTHY_FLOOR) / (1.0 - HEALTHY_FLOOR)
+        expected_di = 500 * (effective ** 2) * SENSITIVITY_CONSTANT
+        assert abs(di - expected_di) < 0.001
+        assert di > 0.05
         assert di < 1.0
 
-        # Health should reflect damage: (1 - 0.2025) * 100 ≈ 80
+        # Health should reflect damage
         health = health_from_degradation(di)
-        assert health < 90
+        assert health < 95
 
         # RUL should be finite
         rul = rul_from_degradation(di, rate)
@@ -265,8 +309,10 @@ class TestDegradationLifecycle:
 
     def test_prolonged_fault_causes_escalation(self):
         """
-        2000 seconds of max severity → DI=1.0, health=0, CRITICAL.
-        (1.0^2 × 0.0005 × 2000 = 1.0)
+        N seconds of max severity (score=1.0) → DI=1.0, health=0, CRITICAL.
+        effective_severity = (1.0 - 0.65) / 0.35 = 1.0
+        damage_rate = 1.0^2 * 0.0005 = 0.0005/s
+        DI=1.0 after 2000 seconds.
         """
         di = 0.0
         for _ in range(2000):

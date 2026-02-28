@@ -51,10 +51,18 @@ DEFAULT_TREND_WINDOWS = 5
 # ============================================================================
 
 # Sensitivity constant for Miner's Rule damage accumulation
-# DI_inc = (batch_anomaly_score ** 2) * SENSITIVITY_CONSTANT
+# DI_inc = (effective_severity ** 2) * SENSITIVITY_CONSTANT
 # At score=1.0 (max fault), DI increases by 0.0005 per second
 # → Full degradation (DI=1.0) takes ~2000 seconds (~33 min) of sustained max fault
 SENSITIVITY_CONSTANT = 0.0005
+
+# Dead-zone floor: batch_scores below this are treated as healthy noise (zero damage).
+# IsolationForest calibration produces non-zero scores (0.1–0.5) even on healthy data
+# due to the contamination parameter.  Without this floor the DI accumulator
+# "self-harms" — phantom damage accrues during normal operation.
+# Scores above HEALTHY_FLOOR are remapped to [0, 1] via:
+#   effective_severity = (score - HEALTHY_FLOOR) / (1 - HEALTHY_FLOOR)
+HEALTHY_FLOOR = 0.65
 
 # DI threshold milestones for Log Watcher warnings
 DI_THRESHOLD_15 = 0.15    # "Motor fatigue reached 15%"
@@ -349,9 +357,11 @@ def compute_cumulative_degradation(
     dt: float = 1.0
 ) -> tuple:
     """
-    Miner's Rule damage accumulation.
+    Miner's Rule damage accumulation with dead-zone.
 
-    DI_inc = (severity ^ 2) * SENSITIVITY_CONSTANT * dt
+    Dead-zone:  scores < HEALTHY_FLOOR (0.65) → effective_severity = 0 → zero damage.
+    Above floor: effective_severity = (score - HEALTHY_FLOOR) / (1 - HEALTHY_FLOOR)
+    DI_inc = (effective_severity ^ 2) * SENSITIVITY_CONSTANT * dt
     new_di = max(last_di, last_di + DI_inc)   ← absolute monotonicity
 
     Args:
@@ -364,8 +374,16 @@ def compute_cumulative_degradation(
         new_di:      Updated DI, clamped to [0, 1], never < last_di
         damage_rate: Instantaneous damage rate (DI per second)
     """
-    severity = max(0.0, min(1.0, batch_anomaly_score))
-    damage_rate = (severity ** 2) * SENSITIVITY_CONSTANT
+    clamped = max(0.0, min(1.0, batch_anomaly_score))
+
+    # Dead-zone: scores below HEALTHY_FLOOR produce zero damage
+    if clamped < HEALTHY_FLOOR:
+        effective_severity = 0.0
+    else:
+        # Remap [HEALTHY_FLOOR, 1.0] → [0.0, 1.0]
+        effective_severity = (clamped - HEALTHY_FLOOR) / (1.0 - HEALTHY_FLOOR)
+
+    damage_rate = (effective_severity ** 2) * SENSITIVITY_CONSTANT
 
     raw_di = last_di + damage_rate * dt
     # Monotonicity: DI must NEVER decrease
