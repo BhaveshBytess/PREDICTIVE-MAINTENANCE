@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 EVENT_ANOMALY_DETECTED = "ANOMALY_DETECTED"
 EVENT_ANOMALY_CLEARED = "ANOMALY_CLEARED"
 EVENT_HEARTBEAT = "HEARTBEAT"
+EVENT_DEGRADATION_WARNING = "DEGRADATION_WARNING"
 
 SEVERITY_INFO = "info"
 SEVERITY_WARNING = "warning"
@@ -136,7 +137,8 @@ def _build_anomaly_cleared_message() -> str:
 class _AssetState:
     """Tracks the previous is_faulty state for a single asset."""
     __slots__ = ("previous_is_faulty", "last_event_timestamp",
-                 "_consecutive_faulty", "_consecutive_healthy")
+                 "_consecutive_faulty", "_consecutive_healthy",
+                 "_last_di_threshold")
 
     # Phase 7: Debounce — require N consecutive matching evaluations
     # before acknowledging a transition. At 1 eval/sec this equals N seconds.
@@ -147,6 +149,7 @@ class _AssetState:
         self.last_event_timestamp: Optional[str] = None
         self._consecutive_faulty: int = 0
         self._consecutive_healthy: int = 0
+        self._last_di_threshold: float = 0.0  # Phase 20: last DI threshold emitted
 
 
 # ============================================================================
@@ -296,6 +299,64 @@ class EventEngine:
             state.last_event_timestamp = ts
 
             return [event]
+
+    def evaluate_degradation(
+        self,
+        asset_id: str,
+        old_di: float,
+        new_di: float,
+        rul_hours: float,
+        timestamp: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Emit DEGRADATION_WARNING events when DI crosses threshold milestones.
+
+        Thresholds: 15%, 30%, 50%, 75%
+
+        Args:
+            asset_id: Asset identifier
+            old_di: Previous DI value
+            new_di: Updated DI value
+            rul_hours: Current RUL estimate in hours
+            timestamp: Optional ISO timestamp
+
+        Returns:
+            List of 0+ event dicts (one per crossed threshold)
+        """
+        from backend.rules.assessor import crossed_thresholds
+
+        crossings = crossed_thresholds(old_di, new_di)
+        if not crossings:
+            return []
+
+        ts = timestamp or datetime.now(timezone.utc).isoformat()
+        events = []
+
+        for thr_val, pct_label in crossings:
+            severity = SEVERITY_CRITICAL if thr_val >= 0.50 else SEVERITY_WARNING
+            rul_display = f"{rul_hours:.1f}h" if rul_hours < 99999 else "N/A"
+            event = {
+                "timestamp": ts,
+                "type": EVENT_DEGRADATION_WARNING,
+                "severity": severity,
+                "message": (
+                    f"Motor fatigue reached {pct_label} (DI={new_di:.4f}). "
+                    f"Remaining Useful Life: {rul_display}."
+                ),
+            }
+            events.append(event)
+            logger.warning(
+                f"[EventEngine] {asset_id}: DEGRADATION_WARNING "
+                f"threshold={pct_label} DI={new_di:.4f} RUL={rul_display}"
+            )
+
+        # Update tracker so we can avoid re-emitting
+        with self._states_lock:
+            if asset_id not in self._states:
+                self._states[asset_id] = _AssetState()
+            self._states[asset_id]._last_di_threshold = crossings[-1][0]
+
+        return events
 
     def get_state(self, asset_id: str) -> Optional[bool]:
         """Return the last-known is_faulty state for an asset, or None."""

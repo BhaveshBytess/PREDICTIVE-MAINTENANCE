@@ -25,11 +25,50 @@ from backend.api.integration_routes import (
 from backend.database import db
 from backend.ml.batch_features import extract_batch_features, extract_multi_window_features
 from backend.ml.batch_detector import BatchAnomalyDetector
+from backend.rules.assessor import (
+    compute_cumulative_degradation,
+    health_from_degradation,
+    rul_from_degradation,
+    risk_from_health,
+    crossed_thresholds,
+)
+from backend.events import event_engine
 
 # pandas is lazy-loaded inside functions to keep cold-start fast
 
 # Batch detector storage (one per asset)
 _batch_detectors: Dict[str, BatchAnomalyDetector] = {}
+
+# ── CUMULATIVE DEGRADATION STATE (Phase 20) ────────────────────────────────
+# Keyed by asset_id. Values: {"degradation_index": float, "total_cycles": int,
+#                              "last_damage_rate": float, "hydrated": bool}
+_degradation_state: Dict[str, Dict[str, Any]] = {}
+
+
+def _ensure_degradation_state(asset_id: str) -> Dict[str, Any]:
+    """
+    Startup hydration: guarantee degradation state exists for asset_id.
+
+    On first call:
+      1. Query InfluxDB for last persisted DI (survives restarts).
+      2. Fall back to 0.0 if bucket is empty or connection fails.
+
+    Subsequent calls: return cached dict (no IO).
+    """
+    if asset_id in _degradation_state and _degradation_state[asset_id].get("hydrated"):
+        return _degradation_state[asset_id]
+
+    # Hydrate from InfluxDB
+    last_di = db.query_latest_degradation_index(asset_id)
+    state = {
+        "degradation_index": last_di,
+        "total_cycles": 0,
+        "last_damage_rate": 0.0,
+        "hydrated": True,
+    }
+    _degradation_state[asset_id] = state
+    print(f"[DEGRADATION] Hydrated {asset_id}: DI={last_di:.6f}")
+    return state
 
 
 router = APIRouter(prefix="/system", tags=["System Control"])
@@ -495,6 +534,25 @@ def run_calibration(asset_id: str):
                             break
             
             # Stamp all points in this batch with the batch-level verdict
+            # ── PHASE 20: Accumulate degradation index ──
+            batch_score = 0.0
+            if asset_id in _batch_detectors and _batch_detectors[asset_id].is_trained:
+                try:
+                    batch_score = _batch_detectors[asset_id].score_raw_batch(raw_batch)
+                except Exception:
+                    batch_score = 0.0
+
+            ds = _ensure_degradation_state(asset_id)
+            old_di = ds["degradation_index"]
+            new_di, damage_rate = compute_cumulative_degradation(old_di, batch_score, dt=1.0)
+            ds["degradation_index"] = new_di
+            ds["total_cycles"] += 1
+            ds["last_damage_rate"] = damage_rate
+
+            # Phase 20: Emit DI threshold events
+            _rul = rul_from_degradation(new_di, damage_rate)
+            event_engine.evaluate_degradation(asset_id, old_di, new_di, _rul)
+
             for i, reading in enumerate(raw_batch):
                 ts_ms = base_ms + (i * 10)
                 reading["is_faulty"] = is_batch_anomaly
@@ -512,6 +570,7 @@ def run_calibration(asset_id: str):
                         "power_factor": reading["power_factor"],
                         "vibration_g": reading["vibration_g"],
                         "is_faulty": is_batch_anomaly,
+                        "degradation_index": new_di,
                     },
                     "timestamp_ms": ts_ms
                 })
@@ -586,6 +645,25 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                             break
             
             # Store batch features in the last reading for event engine narration
+            # ── PHASE 20: Accumulate degradation index ──
+            fault_batch_score = 0.0
+            if asset_id in _batch_detectors and _batch_detectors[asset_id].is_trained:
+                try:
+                    fault_batch_score = _batch_detectors[asset_id].score_raw_batch(raw_batch)
+                except Exception:
+                    fault_batch_score = 0.5  # conservative fallback in fault mode
+
+            ds = _ensure_degradation_state(asset_id)
+            old_di = ds["degradation_index"]
+            new_di, damage_rate = compute_cumulative_degradation(old_di, fault_batch_score, dt=1.0)
+            ds["degradation_index"] = new_di
+            ds["total_cycles"] += 1
+            ds["last_damage_rate"] = damage_rate
+
+            # Phase 20: Emit DI threshold events
+            _rul = rul_from_degradation(new_di, damage_rate)
+            event_engine.evaluate_degradation(asset_id, old_di, new_di, _rul)
+
             for i, reading in enumerate(raw_batch):
                 ts_ms = base_ms + (i * 10)
                 reading["is_faulty"] = is_anomaly
@@ -607,6 +685,7 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                         "power_factor": reading["power_factor"],
                         "vibration_g": reading["vibration_g"],
                         "is_faulty": is_anomaly,
+                        "degradation_index": new_di,
                     },
                     "timestamp_ms": ts_ms
                 })
@@ -797,6 +876,25 @@ async def reset_system(
                             is_anomaly = True
                             break
             
+            # ── PHASE 20: Accumulate degradation index ──
+            resume_batch_score = 0.0
+            if asset_id in _batch_detectors and _batch_detectors[asset_id].is_trained:
+                try:
+                    resume_batch_score = _batch_detectors[asset_id].score_raw_batch(raw_batch)
+                except Exception:
+                    resume_batch_score = 0.0
+
+            resume_ds = _ensure_degradation_state(asset_id)
+            resume_old_di = resume_ds["degradation_index"]
+            resume_new_di, resume_damage_rate = compute_cumulative_degradation(resume_old_di, resume_batch_score, dt=1.0)
+            resume_ds["degradation_index"] = resume_new_di
+            resume_ds["total_cycles"] += 1
+            resume_ds["last_damage_rate"] = resume_damage_rate
+
+            # Phase 20: Emit DI threshold events
+            _rul = rul_from_degradation(resume_new_di, resume_damage_rate)
+            event_engine.evaluate_degradation(asset_id, resume_old_di, resume_new_di, _rul)
+
             for i, reading in enumerate(raw_batch):
                 ts_ms = base_ms + (i * 10)
                 reading["is_faulty"] = is_anomaly
@@ -814,6 +912,7 @@ async def reset_system(
                         "power_factor": reading["power_factor"],
                         "vibration_g": reading["vibration_g"],
                         "is_faulty": is_anomaly,
+                        "degradation_index": resume_new_di,
                     },
                     "timestamp_ms": ts_ms
                 })
@@ -905,6 +1004,7 @@ async def purge_and_recalibrate():
     _baselines.clear()
     _detectors.clear()
     _batch_detectors.clear()
+    _degradation_state.clear()
 
     # 4. Reset state manager
     _state_manager.reset_metrics()

@@ -141,6 +141,9 @@ class HealthStatusResponse(BaseModel):
     explanations: list
     model_version: str
     baseline_targets: Optional[Dict[str, Any]] = None
+    # Phase 20 — Cumulative Prognostics
+    degradation_index: Optional[float] = None
+    rul_hours: Optional[float] = None
 
 
 class SimpleIngestRequest(BaseModel):
@@ -252,20 +255,30 @@ async def build_baseline(
 async def get_health_status(asset_id: str):
     """
     Get the latest health assessment for an asset.
-    
-    Returns health score, risk level, and explanations.
-    Uses direct deviation from baseline for more responsive anomaly detection.
+
+    Phase 20 — Read-only view of accumulated Degradation Index (DI).
+    Health and RUL are derived directly from the monotonic DI state
+    maintained by the monitoring loops in system_routes.py.
+    Falls back to legacy scoring when DI state is not yet available.
     """
+    # Import DI state from system_routes (set by monitoring loops)
+    from backend.api.system_routes import _degradation_state
+    from backend.rules.assessor import (
+        health_from_degradation,
+        rul_from_degradation,
+        risk_from_health,
+    )
+
     # Check if we have data
     if asset_id not in _sensor_history or len(_sensor_history[asset_id]) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No data for asset '{asset_id}'"
         )
-    
+
     # Get latest reading
     latest = _sensor_history[asset_id][-1]
-    
+
     # Default health if no baseline yet
     if asset_id not in _baselines:
         return HealthStatusResponse(
@@ -277,36 +290,89 @@ async def get_health_status(asset_id: str):
             explanations=["Baseline not yet established. Collecting data..."],
             model_version="pending"
         )
-    
+
     baseline = _baselines[asset_id]
-    
-    # CALIBRATED ML SCORING (Phase 3 Integration)
-    # Use the upgraded Isolation Forest with derived features and quantile calibration
-    # PLUS simple range check for more proportional severity response
+
+    # ── PHASE 20: Read DI state (primary path) ──────────────────────────
+    di_state = _degradation_state.get(asset_id)
+    if di_state and di_state.get("hydrated"):
+        di = di_state["degradation_index"]
+        damage_rate = di_state.get("last_damage_rate", 0.0)
+        total_cycles = di_state.get("total_cycles", 0)
+
+        health_score = health_from_degradation(di)
+        risk_level = risk_from_health(health_score)
+        rul_hours = rul_from_degradation(di, damage_rate)
+        maintenance_days = round(rul_hours / 24.0, 1) if rul_hours < 99999.0 else 90.0
+
+        # Generate explanations from DI state
+        generator = ExplanationGenerator(baseline)
+        current_readings = {
+            'voltage_v': latest['voltage_v'],
+            'current_a': latest['current_a'],
+            'power_factor': latest['power_factor'],
+            'vibration_g': latest['vibration_g']
+        }
+        explanations = generator.generate(current_readings, RiskLevel(risk_level), baseline)
+        explanation_texts = [e.reason for e in explanations] if explanations else ["Systems nominal"]
+
+        # Store latest health report for report generation
+        assessor = HealthAssessor(
+            detector_version="2.0.0-cumulative",
+            baseline_id=baseline.baseline_id
+        )
+        # Build a health report for backward compat with /report endpoint
+        from backend.rules.assessor import HealthReport, ReportMetadata
+        report = HealthReport(
+            asset_id=asset_id,
+            health_score=health_score,
+            risk_level=RiskLevel(risk_level),
+            maintenance_window_days=maintenance_days,
+            explanations=[],
+            metadata=ReportMetadata(
+                model_version=f"cumulative-di:{di:.4f}|cycles:{total_cycles}"
+            )
+        )
+        _latest_health[asset_id] = report
+
+        # Build baseline target dict for frontend status cards
+        baseline_targets = {}
+        for signal_name, profile in baseline.signal_profiles.items():
+            baseline_targets[signal_name] = round(profile.mean, 2)
+
+        return HealthStatusResponse(
+            asset_id=asset_id,
+            timestamp=datetime.now(timezone.utc),
+            health_score=health_score,
+            risk_level=risk_level,
+            maintenance_window_days=maintenance_days,
+            explanations=explanation_texts,
+            model_version=f"cumulative-di:{di:.4f}|cycles:{total_cycles}",
+            baseline_targets=baseline_targets,
+            degradation_index=round(di, 6),
+            rul_hours=rul_hours,
+        )
+
+    # ── FALLBACK: Legacy scoring (pre-Phase 20, no DI state yet) ────────
     anomaly_score = 0.0
     ml_score = 0.0
     range_score = 0.0
-    
+
     # Always compute range-based score for proportional response
     range_score = _simple_range_check(baseline, latest)
-    
+
     if asset_id in _detectors and _detectors[asset_id].is_trained:
-        # Use calibrated ML detector
         detector = _detectors[asset_id]
-        
-        # Compute features from current readings
         from backend.features.calculator import compute_all_features
-        
         import pandas as pd
         df = pd.DataFrame(_sensor_history[asset_id])
         df['timestamp'] = pd.to_datetime(df['timestamp'], format='ISO8601')
         df.set_index('timestamp', inplace=True)
-        
+
         if len(df) >= 10:
             features = compute_all_features(df, len(df)-1, latest['power_factor'])
-            feature_cols = ['voltage_rolling_mean_1h', 'current_spike_count', 
+            feature_cols = ['voltage_rolling_mean_1h', 'current_spike_count',
                             'power_factor_efficiency_score', 'vibration_intensity_rms']
-            
             if all(features.get(col) is not None for col in feature_cols):
                 try:
                     feature_dict = {col: features[col] for col in feature_cols}
@@ -319,32 +385,22 @@ async def get_health_status(asset_id: str):
             ml_score = range_score
     else:
         ml_score = range_score
-    
-    # BLEND SCORES: Use the MORE PROPORTIONAL of the two scores
-    # ML detector tends to be binary (low or max), range check is proportional
-    # For better severity graduation:
-    # - If range_score indicates mild fault, don't let ML override to critical
-    # - Use weighted average: 40% ML, 60% range for more proportional response
+
     if ml_score > 0.7 and range_score < 0.4:
-        # ML says critical but range says mild/moderate - trust range more
         anomaly_score = range_score * 0.7 + ml_score * 0.3
     elif ml_score < 0.2 and range_score > 0.3:
-        # ML says healthy but range says fault - trust range
         anomaly_score = range_score
     else:
-        # Normal blending
         anomaly_score = range_score * 0.6 + ml_score * 0.4
-    
-    anomaly_score = min(0.98, max(0.0, anomaly_score))  # Clamp to [0, 0.98]
-    
-    # Generate health assessment
+
+    anomaly_score = min(0.98, max(0.0, anomaly_score))
+
     assessor = HealthAssessor(
         detector_version="1.0.0",
         baseline_id=baseline.baseline_id
     )
     report = assessor.assess(asset_id, anomaly_score)
-    
-    # Generate explanations
+
     generator = ExplanationGenerator(baseline)
     current_readings = {
         'voltage_v': latest['voltage_v'],
@@ -353,16 +409,12 @@ async def get_health_status(asset_id: str):
         'vibration_g': latest['vibration_g']
     }
     explanations = generator.generate(current_readings, report.risk_level, baseline)
-    
-    # Store latest health
+
     _latest_health[asset_id] = report
-    
-    # Build baseline target dict for frontend status cards
-    baseline_targets = None
-    if baseline:
-        baseline_targets = {}
-        for signal_name, profile in baseline.signal_profiles.items():
-            baseline_targets[signal_name] = round(profile.mean, 2)
+
+    baseline_targets = {}
+    for signal_name, profile in baseline.signal_profiles.items():
+        baseline_targets[signal_name] = round(profile.mean, 2)
 
     return HealthStatusResponse(
         asset_id=asset_id,

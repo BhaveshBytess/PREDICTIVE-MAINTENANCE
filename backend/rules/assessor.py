@@ -9,6 +9,12 @@ Constraints:
 - RUL is heuristic lookup, not physics model
 - Trend = slope of anomaly scores over N windows
 - Metadata includes detector version + baseline ID
+
+Phase 20 — Cumulative Prognostics:
+- Degradation Index (DI): Monotonically increasing damage accumulator
+- Formula (Miner's Rule): DI_inc = (severity^2) * SENSITIVITY_CONSTANT
+- Constraint: DI must NEVER decrease
+- Health is derived from DI: health = (1.0 - DI) * 100
 """
 
 from datetime import datetime, timezone
@@ -39,6 +45,22 @@ RUL_BY_RISK = {
 
 # Trend windows for anomaly slope calculation
 DEFAULT_TREND_WINDOWS = 5
+
+# ============================================================================
+# CUMULATIVE DEGRADATION CONSTANTS (Phase 20)
+# ============================================================================
+
+# Sensitivity constant for Miner's Rule damage accumulation
+# DI_inc = (batch_anomaly_score ** 2) * SENSITIVITY_CONSTANT
+# At score=1.0 (max fault), DI increases by 0.0005 per second
+# → Full degradation (DI=1.0) takes ~2000 seconds (~33 min) of sustained max fault
+SENSITIVITY_CONSTANT = 0.0005
+
+# DI threshold milestones for Log Watcher warnings
+DI_THRESHOLD_15 = 0.15    # "Motor fatigue reached 15%"
+DI_THRESHOLD_30 = 0.30    # "Motor fatigue reached 30%"
+DI_THRESHOLD_50 = 0.50    # "Motor fatigue reached 50%"
+DI_THRESHOLD_75 = 0.75    # "Motor fatigue reached 75% — CRITICAL"
 
 
 # ============================================================================
@@ -313,3 +335,120 @@ class HealthAssessor:
             explanations=explanations,
             metadata=metadata
         )
+
+
+# ============================================================================
+# CUMULATIVE DEGRADATION ENGINE (Phase 20)
+# ============================================================================
+# These are MODULE-LEVEL functions (not methods) so they can be called from
+# system_routes.py monitoring loops without instantiating HealthAssessor.
+
+def compute_cumulative_degradation(
+    last_di: float,
+    batch_anomaly_score: float,
+    dt: float = 1.0
+) -> tuple:
+    """
+    Miner's Rule damage accumulation.
+
+    DI_inc = (severity ^ 2) * SENSITIVITY_CONSTANT * dt
+    new_di = max(last_di, last_di + DI_inc)   ← absolute monotonicity
+
+    Args:
+        last_di:              Previous Degradation Index [0, 1]
+        batch_anomaly_score:  Current batch anomaly score [0, 1] (severity)
+        dt:                   Time step in seconds (default 1.0)
+
+    Returns:
+        (new_di, damage_rate)
+        new_di:      Updated DI, clamped to [0, 1], never < last_di
+        damage_rate: Instantaneous damage rate (DI per second)
+    """
+    severity = max(0.0, min(1.0, batch_anomaly_score))
+    damage_rate = (severity ** 2) * SENSITIVITY_CONSTANT
+
+    raw_di = last_di + damage_rate * dt
+    # Monotonicity: DI must NEVER decrease
+    new_di = max(last_di, raw_di)
+    # Clamp to [0, 1]
+    new_di = min(1.0, new_di)
+
+    return (new_di, damage_rate)
+
+
+def health_from_degradation(di: float) -> int:
+    """
+    Derive health score directly from Degradation Index.
+
+    health = (1.0 - DI) * 100, clamped to [0, 100]
+
+    Args:
+        di: Degradation Index [0, 1]
+
+    Returns:
+        Health score integer [0, 100]
+    """
+    raw = (1.0 - di) * 100.0
+    return int(max(0, min(100, round(raw))))
+
+
+def rul_from_degradation(di: float, damage_rate: float) -> float:
+    """
+    Estimate Remaining Useful Life from DI and damage rate.
+
+    RUL_hours = (1.0 - DI) / max(damage_rate, 1e-9)
+
+    Args:
+        di:          Current Degradation Index [0, 1]
+        damage_rate: Current instantaneous damage rate (DI per second)
+
+    Returns:
+        RUL in hours. Returns 99999.0 if damage_rate ≈ 0.
+    """
+    remaining = 1.0 - di
+    if damage_rate < 1e-9:
+        return 99999.0
+    rul_seconds = remaining / damage_rate
+    return round(rul_seconds / 3600.0, 2)
+
+
+def risk_from_health(health_score: int) -> str:
+    """
+    Derive risk level from health score using named thresholds.
+
+    Consistent with HealthAssessor.classify_risk_level but returns str.
+    """
+    if health_score <= THRESHOLD_CRITICAL:
+        return "CRITICAL"
+    elif health_score <= THRESHOLD_HIGH:
+        return "HIGH"
+    elif health_score <= THRESHOLD_MODERATE:
+        return "MODERATE"
+    else:
+        return "LOW"
+
+
+def crossed_thresholds(old_di: float, new_di: float) -> list:
+    """
+    Return list of DI threshold milestones crossed between old_di and new_di.
+
+    Useful for emitting warning events.
+
+    Args:
+        old_di: Previous DI value
+        new_di: New DI value
+
+    Returns:
+        List of (threshold_value, percent_label) that were newly crossed
+    """
+    thresholds = [
+        (DI_THRESHOLD_15, "15%"),
+        (DI_THRESHOLD_30, "30%"),
+        (DI_THRESHOLD_50, "50%"),
+        (DI_THRESHOLD_75, "75%"),
+    ]
+    crossed = []
+    for thr, label in thresholds:
+        if old_di < thr <= new_di:
+            crossed.append((thr, label))
+    return crossed

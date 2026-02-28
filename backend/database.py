@@ -470,6 +470,56 @@ from(bucket: "{self._bucket}")
             logger.error(f"Unexpected sensor history query error: {e}")
             return []
     
+    def query_latest_degradation_index(self, asset_id: str) -> float:
+        """
+        Query InfluxDB for the most recent degradation_index value.
+
+        Used for startup hydration — recovers accumulated DI on restart
+        so degradation never resets to zero.
+
+        Args:
+            asset_id: Asset identifier
+
+        Returns:
+            Latest DI value [0, 1], or 0.0 if no data / mock mode / error.
+        """
+        if self._mock_mode:
+            # Scan mock buffer for latest degradation_index
+            for point in reversed(self._mock_buffer):
+                if (point.get("tags", {}).get("asset_id") == asset_id
+                        and "degradation_index" in point.get("fields", {})):
+                    return float(point["fields"]["degradation_index"])
+            return 0.0
+
+        if not self.is_connected:
+            print("[DB] ⚠️ Cannot query DI — not connected")
+            return 0.0
+
+        flux_query = f'''
+from(bucket: "{self._bucket}")
+  |> range(start: -30d)
+  |> filter(fn: (r) => r["_measurement"] == "sensor_events")
+  |> filter(fn: (r) => r["asset_id"] == "{asset_id}")
+  |> filter(fn: (r) => r["_field"] == "degradation_index")
+  |> last()
+'''
+        try:
+            query_api = self._client.query_api()
+            tables = query_api.query(flux_query, org=self._org)
+            for table in tables:
+                for record in table.records:
+                    val = record.get_value()
+                    if val is not None:
+                        di = float(val)
+                        print(f"[DB] ✅ Hydrated DI for {asset_id}: {di:.6f}")
+                        return di
+            print(f"[DB] No DI found for {asset_id} — starting at 0.0")
+            return 0.0
+        except Exception as e:
+            print(f"[DB] ⚠️ DI hydration query failed: {e}")
+            logger.error(f"DI hydration query failed for {asset_id}: {e}")
+            return 0.0
+
     def get_mock_buffer(self) -> List[Dict[str, Any]]:
         """Get the mock write buffer (for testing/debugging)."""
         return self._mock_buffer.copy()
