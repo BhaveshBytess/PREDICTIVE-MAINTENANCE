@@ -52,9 +52,10 @@ DEFAULT_TREND_WINDOWS = 5
 
 # Sensitivity constant for Miner's Rule damage accumulation
 # DI_inc = (batch_anomaly_score ** 2) * SENSITIVITY_CONSTANT
-# At score=1.0 (max fault), DI increases by 0.0005 per second
-# → Full degradation (DI=1.0) takes ~2000 seconds (~33 min) of sustained max fault
-SENSITIVITY_CONSTANT = 0.0005
+# At score=1.0 (max fault), DI increases by 0.002 per second
+# → Full degradation (DI=1.0) takes ~500 seconds (~8.3 min) of sustained max fault
+# Tuned for live-demo pacing: Critical failure visible in 5-8 min window
+SENSITIVITY_CONSTANT = 0.002
 
 # DI threshold milestones for Log Watcher warnings
 DI_THRESHOLD_15 = 0.15    # "Motor fatigue reached 15%"

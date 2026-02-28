@@ -8,6 +8,7 @@ Provides lifecycle control endpoints for terminal-free demo:
 - POST /system/reset — Stop faults, return to healthy
 """
 
+import concurrent.futures
 import threading
 import time
 from datetime import datetime, timezone, timedelta
@@ -45,21 +46,47 @@ _batch_detectors: Dict[str, BatchAnomalyDetector] = {}
 _degradation_state: Dict[str, Dict[str, Any]] = {}
 
 
+# Severity floor map: guarantees minimum anomaly score during known fault injection
+# so that even MILD/MEDIUM faults contribute noticeable cumulative damage.
+SEVERITY_FLOOR = {
+    "MILD":   0.30,   # floor → DI_inc ≥ 0.30² × 0.002 = 0.00018/s → ~92 min to DI=1.0
+    "MEDIUM": 0.60,   # floor → DI_inc ≥ 0.60² × 0.002 = 0.00072/s → ~23 min to DI=1.0
+    "SEVERE": 0.85,   # floor → DI_inc ≥ 0.85² × 0.002 = 0.00145/s → ~11 min to DI=1.0
+}
+
+_HYDRATION_TIMEOUT_S = 5.0
+
+
 def _ensure_degradation_state(asset_id: str) -> Dict[str, Any]:
     """
     Startup hydration: guarantee degradation state exists for asset_id.
 
     On first call:
       1. Query InfluxDB for last persisted DI (survives restarts).
-      2. Fall back to 0.0 if bucket is empty or connection fails.
+      2. Fall back to 0.0 if query fails or times out (5 s hard cap).
 
     Subsequent calls: return cached dict (no IO).
     """
     if asset_id in _degradation_state and _degradation_state[asset_id].get("hydrated"):
         return _degradation_state[asset_id]
 
-    # Hydrate from InfluxDB
-    last_di = db.query_latest_degradation_index(asset_id)
+    # Hydrate from InfluxDB — strict timeout so a cold/dead DB never blocks startup
+    last_di = 0.0
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(db.query_latest_degradation_index, asset_id)
+            last_di = future.result(timeout=_HYDRATION_TIMEOUT_S)
+    except concurrent.futures.TimeoutError:
+        print(
+            f"[DEGRADATION] ⚠️ CRITICAL: Hydration query timed out after "
+            f"{_HYDRATION_TIMEOUT_S}s for {asset_id}. Defaulting to 0.0 to allow system start."
+        )
+    except Exception as e:
+        print(
+            f"[DEGRADATION] ⚠️ CRITICAL: Could not hydrate state from InfluxDB. "
+            f"Defaulting to 0.0 to allow system start. Error: {e}"
+        )
+
     state = {
         "degradation_index": last_di,
         "total_cycles": 0,
@@ -652,6 +679,10 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                     fault_batch_score = _batch_detectors[asset_id].score_raw_batch(raw_batch)
                 except Exception:
                     fault_batch_score = 0.5  # conservative fallback in fault mode
+
+            # Severity floor: guarantee minimum anomaly score for known faults
+            sev_floor = SEVERITY_FLOOR.get(severity.value, 0.0)
+            fault_batch_score = max(fault_batch_score, sev_floor)
 
             ds = _ensure_degradation_state(asset_id)
             old_di = ds["degradation_index"]
