@@ -52,9 +52,10 @@ DEFAULT_TREND_WINDOWS = 5
 
 # Sensitivity constant for Miner's Rule damage accumulation
 # DI_inc = (effective_severity ** 2) * SENSITIVITY_CONSTANT
-# At score=1.0 (max fault), DI increases by 0.0005 per second
-# → Full degradation (DI=1.0) takes ~2000 seconds (~33 min) of sustained max fault
-SENSITIVITY_CONSTANT = 0.0005
+# At score=1.0 (max fault), DI increases by 0.005 per second
+# → Full degradation (DI=1.0) takes ~200 seconds of sustained max fault
+# → Real faults (score ~0.85-0.95) drive 100→0% in ~4-5 minutes (demo-tuned)
+SENSITIVITY_CONSTANT = 0.005
 
 # Dead-zone floor: batch_scores below this are treated as healthy noise (zero damage).
 # IsolationForest calibration produces non-zero scores (0.1–0.5) even on healthy data

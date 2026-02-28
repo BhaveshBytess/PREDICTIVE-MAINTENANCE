@@ -1,29 +1,28 @@
 # Predictive Maintenance & Energy Efficiency System
-# Dependencies - Pinned Versions (Phase 0)
+# Dependencies - Pinned Versions (updated 2026-02-28)
 # Python 3.10+ required
 
 # === Web Framework ===
-fastapi==0.115.6
-uvicorn==0.34.0
-pydantic==2.10.5
-pydantic-settings==2.7.1
-python-dotenv==1.0.1
+fastapi==0.116.1
+uvicorn==0.35.0
+pydantic==2.12.3
+pydantic-settings==2.11.0
+python-dotenv==1.1.1
+python-multipart==0.0.20
 
 # === Time-Series Database ===
-influxdb-client==1.48.0
+influxdb-client==1.50.0
 
 # === Data Processing ===
-numpy==2.2.1
-pandas==2.2.3
+numpy==2.2.3
+pandas==2.3.1
 
 # === Machine Learning ===
-scikit-learn==1.6.1
+scikit-learn==1.7.2
 
 # === Reporting ===
-reportlab==4.2.5
-openpyxl==3.1.5
+reportlab==4.4.4
 
 # === Testing ===
-pytest==8.3.4
-pytest-asyncio==0.25.2
+pytest==8.4.2
 httpx==0.28.1

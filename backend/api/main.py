@@ -7,6 +7,8 @@ CORS: Configured via environment variables.
 """
 
 import logging
+import os
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -23,6 +25,21 @@ from .operator_routes import router as operator_router
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ── Environment Validation ──────────────────────────────────────────────
+_missing_env = []
+if not os.environ.get("INFLUXDB_URL") and not os.environ.get("INFLUX_URL"):
+    _missing_env.append("INFLUXDB_URL (or INFLUX_URL)")
+if not os.environ.get("INFLUXDB_TOKEN") and not os.environ.get("INFLUX_TOKEN"):
+    _missing_env.append("INFLUXDB_TOKEN (or INFLUX_TOKEN)")
+if _missing_env:
+    logger.warning(
+        "\n" + "=" * 60
+        + "\n  MISSING ENVIRONMENT VARIABLES\n"
+        + "\n".join(f"  - {v}" for v in _missing_env)
+        + "\n  Set them in .env or export before starting."
+        + "\n" + "=" * 60
+    )
 
 
 @asynccontextmanager
@@ -49,13 +66,21 @@ app = FastAPI(
 
 
 # CORS Configuration — loaded from settings
-# For Vercel deployments, we use allow_origin_regex to match all vercel.app subdomains
+# Ensures localhost + 127.0.0.1 always work (migration-safe), plus Vercel previews
+_cors_origins = list(set(settings.CORS_ORIGINS + [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8080",
+]))
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=_cors_origins,
     allow_origin_regex=r"https://.*\.vercel\.app",  # Match all Vercel preview deployments
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
 

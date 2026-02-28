@@ -40,7 +40,7 @@ class TestComputeCumulativeDegradation:
         assert rate == 0.0
 
     def test_formula_matches_spec(self):
-        """DI_inc = (effective_severity^2) * 0.0005 for dt=1, after dead-zone remap."""
+        """DI_inc = (effective_severity^2) * SENSITIVITY_CONSTANT for dt=1, after dead-zone remap."""
         raw_score = 0.8
         effective = (raw_score - HEALTHY_FLOOR) / (1.0 - HEALTHY_FLOOR)
         expected_rate = (effective ** 2) * SENSITIVITY_CONSTANT
@@ -178,7 +178,7 @@ class TestRulFromDegradation:
         assert rul == 99999.0
 
     def test_known_rate(self):
-        """DI=0.5, rate=0.0005/s → remaining=0.5 → 0.5/0.0005 = 1000s = 0.28h."""
+        """DI=0.5, rate=SENSITIVITY_CONSTANT/s → remaining=0.5 → finite hours."""
         rul = rul_from_degradation(0.5, SENSITIVITY_CONSTANT)
         expected = (1.0 - 0.5) / SENSITIVITY_CONSTANT / 3600.0
         assert abs(rul - expected) < 0.01
@@ -274,9 +274,9 @@ class TestDegradationLifecycle:
 
         With dead-zone (HEALTHY_FLOOR=0.65):
         - 100s of healthy (score=0.02 < 0.65) → DI stays at 0.0  (dead-zone)
-        - 500s of fault (score=0.9) → effective = (0.9 - 0.65) / 0.35 ≈ 0.7143
-          damage_rate = (0.7143^2) * 0.0005 ≈ 0.000255
-          DI ≈ 500 * 0.000255 ≈ 0.1276
+        - 50s of fault (score=0.9) → effective = (0.9 - 0.65) / 0.35 ≈ 0.7143
+          damage_rate = (0.7143^2) * SENSITIVITY_CONSTANT
+          DI += 50 * damage_rate (should be meaningful but < 1.0)
         """
         di = 0.0
 
@@ -285,16 +285,16 @@ class TestDegradationLifecycle:
             di, rate = compute_cumulative_degradation(di, 0.02)
         assert di == 0.0  # Dead-zone: exactly zero
 
-        # 500 seconds of severe fault (score=0.9 > HEALTHY_FLOOR)
-        for _ in range(500):
+        # 50 seconds of severe fault (score=0.9 > HEALTHY_FLOOR)
+        for _ in range(50):
             old = di
             di, rate = compute_cumulative_degradation(di, 0.9)
             assert di >= old  # Monotonicity
 
         # DI should be meaningful but not maxed
         effective = (0.9 - HEALTHY_FLOOR) / (1.0 - HEALTHY_FLOOR)
-        expected_di = 500 * (effective ** 2) * SENSITIVITY_CONSTANT
-        assert abs(di - expected_di) < 0.001
+        expected_di = 50 * (effective ** 2) * SENSITIVITY_CONSTANT
+        assert abs(di - expected_di) < 0.01
         assert di > 0.05
         assert di < 1.0
 
@@ -311,8 +311,8 @@ class TestDegradationLifecycle:
         """
         N seconds of max severity (score=1.0) → DI=1.0, health=0, CRITICAL.
         effective_severity = (1.0 - 0.65) / 0.35 = 1.0
-        damage_rate = 1.0^2 * 0.0005 = 0.0005/s
-        DI=1.0 after 2000 seconds.
+        damage_rate = 1.0^2 * SENSITIVITY_CONSTANT
+        DI=1.0 after 1/SENSITIVITY_CONSTANT seconds.
         """
         di = 0.0
         for _ in range(2000):

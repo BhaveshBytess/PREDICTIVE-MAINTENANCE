@@ -996,8 +996,18 @@ async def purge_and_recalibrate():
     # 1. Stop background task if running
     _state_manager.stop_background_task()
 
-    # 2. Delete all InfluxDB data
+    # 2. Delete all InfluxDB data (may fail on serverless v3)
     db.delete_all()
+
+    # 2b. Write a DI=0.0 reset point so hydration picks up clean state
+    #     (serverless v3 doesn't support range deletes, so we overwrite)
+    from datetime import datetime, timezone
+    db.write_point(
+        measurement="sensor_events",
+        tags={"asset_id": "Motor-01", "asset_type": "motor", "source": "purge_reset"},
+        fields={"degradation_index": 0.0},
+        timestamp=datetime.now(timezone.utc),
+    )
 
     # 3. Wipe in-memory state
     _sensor_history.clear()
@@ -1005,6 +1015,15 @@ async def purge_and_recalibrate():
     _detectors.clear()
     _batch_detectors.clear()
     _degradation_state.clear()
+
+    # 3b. Pre-populate DI=0.0 so hydration won't re-query stale InfluxDB data
+    _degradation_state["Motor-01"] = {
+        "degradation_index": 0.0,
+        "total_cycles": 0,
+        "last_damage_rate": 0.0,
+        "hydrated": True,
+    }
+    print("[DEGRADATION] Purge reset: Motor-01 DI=0.000000 (forced)")
 
     # 4. Reset state manager
     _state_manager.reset_metrics()
