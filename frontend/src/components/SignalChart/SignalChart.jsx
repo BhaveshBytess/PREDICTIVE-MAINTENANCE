@@ -12,6 +12,7 @@ import {
 } from 'recharts'
 import styles from './SignalChart.module.css'
 import { API_URL } from '../../config'
+import { resilientFetch } from '../../api/resilientFetch'
 
 // Generate mock data for demo - using real ISO timestamps (no synthetic Date.now())
 // NOTE: This is only used when no real data is available
@@ -138,7 +139,7 @@ function SignalChart({ data, anomalyIndices = [], title, refreshTrigger = 0, sel
         async function fetchMaintenanceLogs() {
             try {
                 setLogsLoading(true)
-                const response = await fetch(`${API_URL}/api/logs?hours=24&limit=20`)
+                const response = await resilientFetch(`${API_URL}/api/logs?hours=24&limit=20`)
                 
                 if (!response.ok) {
                     console.warn('Failed to fetch maintenance logs:', response.status)

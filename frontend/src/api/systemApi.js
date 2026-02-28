@@ -6,41 +6,9 @@
  */
 
 import { API_URL } from '../config'
+import { resilientFetch } from './resilientFetch'
 
 const API_BASE = API_URL;
-
-/** Default timeout for system control requests (ms) */
-const REQUEST_TIMEOUT_MS = 10_000;
-
-/** Retry config */
-const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 1000;
-
-/**
- * Fetch with timeout + automatic retry.
- * Industrial networks are jittery; a single transient failure should not
- * surface a red error box to the operator.
- */
-async function resilientFetch(url, options = {}, retries = MAX_RETRIES) {
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-        try {
-            const response = await fetch(url, { ...options, signal: controller.signal });
-            clearTimeout(timer);
-            return response;
-        } catch (err) {
-            clearTimeout(timer);
-            const isLast = attempt === retries;
-            if (isLast) throw err;
-            console.warn(
-                `[systemApi] Request failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${RETRY_DELAY_MS}ms...`,
-                err.message
-            );
-            await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
-        }
-    }
-}
 
 /**
  * Get current system state

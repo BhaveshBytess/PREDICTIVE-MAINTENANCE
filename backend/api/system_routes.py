@@ -76,14 +76,14 @@ def _hydrate_from_influx(asset_id: str) -> None:
             current = _degradation_state[asset_id]["degradation_index"]
             if last_di > current:
                 _degradation_state[asset_id]["degradation_index"] = last_di
-                print(f"[DEGRADATION] ✅ Background hydration patched {asset_id}: DI={last_di:.6f}")
+                print(f"[DEGRADATION] [OK] Background hydration patched {asset_id}: DI={last_di:.6f}")
             else:
-                print(f"[DEGRADATION] ✅ Background hydration complete for {asset_id}: "
+                print(f"[DEGRADATION] [OK] Background hydration complete for {asset_id}: "
                       f"DB={last_di:.6f}, kept current={current:.6f}")
         _degradation_state[asset_id]["hydrated"] = True
     except Exception as e:
         print(
-            f"[DEGRADATION] ⚠️ Background hydration failed for {asset_id}. "
+            f"[DEGRADATION] [WARN] Background hydration failed for {asset_id}. "
             f"Continuing with DI={_degradation_state.get(asset_id, {}).get('degradation_index', 0.0):.6f}. "
             f"Error: {e}"
         )
@@ -259,17 +259,23 @@ class SystemStateManager:
                 self._faulty_correct += 1
     
     def stop_background_task(self):
-        """Signal background thread to stop."""
+        """Signal background thread to stop (non-blocking).
+        
+        Sets the stop event so the thread terminates on its next
+        iteration.  Does NOT join — joining blocks the async endpoint
+        for up to 2 s, which causes "Failed to Fetch" on the frontend.
+        The event is cleared lazily in set_active_thread() before the
+        next task starts.
+        """
         self._stop_event.set()
-        if self._active_thread and self._active_thread.is_alive():
-            self._active_thread.join(timeout=2.0)
-        self._stop_event.clear()
     
     def should_stop(self) -> bool:
         """Check if background task should stop."""
         return self._stop_event.is_set()
     
     def set_active_thread(self, thread: threading.Thread):
+        # Clear previous stop signal so the new thread starts clean
+        self._stop_event.clear()
         self._active_thread = thread
 
 
@@ -534,7 +540,7 @@ def run_calibration(asset_id: str):
             _batch_detectors[asset_id] = batch_det
             print(f"[SYSTEM] BatchDetector trained on {len(batch_feature_rows)} windows (16-D features)")
         else:
-            print(f"[SYSTEM] WARNING: Only {len(batch_feature_rows)} batch windows — need 10+ for training")
+            print(f"[SYSTEM] WARNING: Only {len(batch_feature_rows)} batch windows - need 10+ for training")
         
         # CALIBRATION COMPLETE
         _state_manager.set_state(

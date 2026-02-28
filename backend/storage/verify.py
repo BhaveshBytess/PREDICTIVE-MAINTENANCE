@@ -50,9 +50,9 @@ def verify_connection() -> bool:
     print("\n[1/4] Connecting to InfluxDB...")
     try:
         client.connect()
-        print("      ✓ Connection successful")
+        print("      [OK] Connection successful")
     except InfluxDBClientError as e:
-        print(f"      ✗ Connection failed: {e}")
+        print(f"      [FAIL] Connection failed: {e}")
         return False
     
     # Step 2: Write test record
@@ -79,9 +79,9 @@ def verify_connection() -> bool:
     
     try:
         client.write_sensor_event(test_event)
-        print("      ✓ Write successful")
+        print("      [OK] Write successful")
     except InfluxDBClientError as e:
-        print(f"      ✗ Write failed: {e}")
+        print(f"      [FAIL] Write failed: {e}")
         client.disconnect()
         return False
     
@@ -93,15 +93,15 @@ def verify_connection() -> bool:
             limit=1
         )
         if results:
-            print(f"      ✓ Read successful ({len(results)} record(s))")
+            print(f"      [OK] Read successful ({len(results)} record(s))")
             record = results[0]
-            print(f"      → Voltage: {record.get('voltage_v')}V")
-            print(f"      → Current: {record.get('current_a')}A")
-            print(f"      → Vibration: {record.get('vibration_g')}g")
+            print(f"      -> Voltage: {record.get('voltage_v')}V")
+            print(f"      -> Current: {record.get('current_a')}A")
+            print(f"      -> Vibration: {record.get('vibration_g')}g")
         else:
-            print("      ⚠ No records found (write may be delayed)")
+            print("      [WARN] No records found (write may be delayed)")
     except InfluxDBClientError as e:
-        print(f"      ✗ Read failed: {e}")
+        print(f"      [FAIL] Read failed: {e}")
         client.disconnect()
         return False
     
@@ -110,14 +110,14 @@ def verify_connection() -> bool:
     try:
         # Note: In production, you might want to keep test data
         # For verification, we clean up
-        print("      ✓ Cleanup skipped (preserving for integration tests)")
+        print("      [OK] Cleanup skipped (preserving for integration tests)")
     except Exception as e:
-        print(f"      ⚠ Cleanup warning: {e}")
+        print(f"      [WARN] Cleanup warning: {e}")
     
     client.disconnect()
     
     print("\n" + "=" * 50)
-    print("✓ All verification checks passed!")
+    print("[OK] All verification checks passed!")
     print("=" * 50)
     
     return True

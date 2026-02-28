@@ -62,7 +62,7 @@ def _build_anomaly_detected_message(sensor_data: Optional[Dict[str, Any]] = None
         vib_std = batch_feats.get("vibration_g_std", 0.0)
         if vib_std > 0.06:   # healthy σ ≈ 0.02
             deviations.append(
-                f"High vibration variance (mechanical jitter): σ={vib_std:.4f}g"
+                f"High vibration variance (mechanical jitter): std={vib_std:.4f}g"
             )
         
         # Vibration peak-to-peak (transient spikes)
@@ -76,7 +76,7 @@ def _build_anomaly_detected_message(sensor_data: Optional[Dict[str, Any]] = None
         volt_std = batch_feats.get("voltage_v_std", 0.0)
         if volt_std > 5.0:    # healthy σ ≈ 2.0
             deviations.append(
-                f"High voltage variance (grid instability): σ={volt_std:.2f}V"
+                f"High voltage variance (grid instability): std={volt_std:.2f}V"
             )
         
         # Voltage peak-to-peak
@@ -90,14 +90,14 @@ def _build_anomaly_detected_message(sensor_data: Optional[Dict[str, Any]] = None
         curr_std = batch_feats.get("current_a_std", 0.0)
         if curr_std > 3.0:    # healthy σ ≈ 1.0
             deviations.append(
-                f"Current draw instability: σ={curr_std:.2f}A"
+                f"Current draw instability: std={curr_std:.2f}A"
             )
         
         # Power factor variance
         pf_std = batch_feats.get("power_factor_std", 0.0)
         if pf_std > 0.04:    # healthy σ ≈ 0.01
             deviations.append(
-                f"Power factor oscillating (load instability): σ={pf_std:.4f}"
+                f"Power factor oscillating (load instability): std={pf_std:.4f}"
             )
 
     # ── Legacy: Also check raw signal averages for non-batch faults ──
@@ -117,7 +117,7 @@ def _build_anomaly_detected_message(sensor_data: Optional[Dict[str, Any]] = None
 
     vibration = sensor_data.get("vibration_g")
     if vibration is not None and vibration > 0.25:
-        deviations.append(f"Vibration spike ({vibration:.3f}g) — possible bearing wear")
+        deviations.append(f"Vibration spike ({vibration:.3f}g) - possible bearing wear")
 
     if deviations:
         # Limit to top 4 for readability
@@ -184,7 +184,7 @@ class EventEngine:
         self._states: Dict[str, _AssetState] = {}
         self._states_lock = Lock()
         self._initialized = True
-        logger.info("[EventEngine] Initialized — transition-based event generator ready.")
+        logger.info("[EventEngine] Initialized - transition-based event generator ready.")
 
     # ------------------------------------------------------------------
     # Public API
@@ -257,13 +257,13 @@ class EventEngine:
             if is_faulty and state._consecutive_faulty < _AssetState.DEBOUNCE_COUNT:
                 logger.debug(
                     f"[EventEngine] {asset_id}: faulty tick "
-                    f"{state._consecutive_faulty}/{_AssetState.DEBOUNCE_COUNT} — debouncing"
+                    f"{state._consecutive_faulty}/{_AssetState.DEBOUNCE_COUNT} - debouncing"
                 )
                 return []
             if not is_faulty and state._consecutive_healthy < _AssetState.DEBOUNCE_COUNT:
                 logger.debug(
                     f"[EventEngine] {asset_id}: healthy tick "
-                    f"{state._consecutive_healthy}/{_AssetState.DEBOUNCE_COUNT} — debouncing"
+                    f"{state._consecutive_healthy}/{_AssetState.DEBOUNCE_COUNT} - debouncing"
                 )
                 return []
 
