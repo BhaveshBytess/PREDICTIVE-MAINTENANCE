@@ -27,11 +27,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── Environment Validation ──────────────────────────────────────────────
+# Check the resolved settings (pydantic-settings loads from .env + OS env)
 _missing_env = []
-if not os.environ.get("INFLUXDB_URL") and not os.environ.get("INFLUX_URL"):
-    _missing_env.append("INFLUXDB_URL (or INFLUX_URL)")
-if not os.environ.get("INFLUXDB_TOKEN") and not os.environ.get("INFLUX_TOKEN"):
-    _missing_env.append("INFLUXDB_TOKEN (or INFLUX_TOKEN)")
+if not settings.INFLUX_URL or settings.INFLUX_URL == "http://localhost:8086":
+    # Only warn if it's still the default AND no env/dotenv override was set
+    if not os.environ.get("INFLUXDB_URL") and not os.environ.get("INFLUX_URL"):
+        _missing_env.append("INFLUX_URL")
+if not settings.INFLUX_TOKEN:
+    _missing_env.append("INFLUX_TOKEN")
 if _missing_env:
     logger.warning(
         "\n" + "=" * 60
