@@ -159,7 +159,7 @@ python scripts/generate_data.py --asset_id Motor-01 --duration 10 --healthy
 ### Option B: Purge & Re-Calibrate (Full Reset)
 Click the purple **"🗑️ Purge & Re-Calibrate"** button in the System Control Panel.
 
-> This wipes ALL InfluxDB data, clears in-memory baselines/detectors, and resets the system to IDLE. A confirmation dialog prevents accidental clicks.
+> This writes DI=0.0 to InfluxDB, clears in-memory baselines/detectors/DI state, and resets the system to IDLE. Health returns to 100%. A confirmation dialog prevents accidental clicks.
 
 **What to point out:**
 - System state returns to IDLE
@@ -193,8 +193,8 @@ The dashboard has a blue button: **"📄 DOWNLOAD FULL REPORT (5-Page PDF)"**
 5. **Page 5 - Audit Trail**: Millisecond-precision process log, ISO compliance checkboxes
 
 ### Alternative Downloads
-- **Excel button**: Spreadsheet format for data analysis
-- **Basic PDF button**: Simple 1-page certificate
+- **Excel button**: Spreadsheet format with Summary (includes DI, Damage Rate, RUL), Operator Logs, and Raw Sensor Data sheets
+- **Basic PDF button**: 1-page executive summary with Health Grade, KPIs, and Cumulative Prognostics (DI, Damage Rate, RUL)
 
 ---
 
@@ -204,7 +204,7 @@ The dashboard has a blue button: **"📄 DOWNLOAD FULL REPORT (5-Page PDF)"**
 > "Unexpected equipment failures cost industries millions. This system monitors industrial motors in real-time and predicts maintenance needs BEFORE failures occur, reducing downtime by up to 40%."
 
 ### When Asked "How Does the ML Work?"
-> "We use Isolation Forest algorithm trained on healthy sensor data to detect anomalies. When new readings deviate from the learned baseline, the system flags it and calculates a health score."
+> "We use an Isolation Forest algorithm trained on healthy sensor data. When readings deviate from baseline, the system accumulates a Degradation Index — a monotonic damage score that never decreases. A critical fault drives health from 100% to 0% in about 4-5 minutes. The system also estimates Remaining Useful Life (RUL) based on the current damage rate."
 
 ### When Asked "What Makes This Different?"
 > "Unlike black-box ML systems, we provide EXPLAINABILITY. The system tells you exactly WHY it flagged an issue - 'Vibration is 3x above normal' - so operators can take targeted action."
@@ -269,10 +269,11 @@ The dashboard has a blue button: **"📄 DOWNLOAD FULL REPORT (5-Page PDF)"**
 - [ ] Showed MODERATE risk (lines appear)
 - [ ] Showed HIGH risk (multiple alerts)
 - [ ] Showed CRITICAL risk (extreme spike)
-- [ ] Showed recovery back to LOW
-- [ ] Demonstrated Purge & Re-Calibrate button
+- [ ] Showed cumulative degradation (~4-5 min from 100% to 0% under critical fault)
+- [ ] Showed recovery back to LOW via Purge & Re-Calibrate
 - [ ] Downloaded 5-page Industrial Report (PDF)
-- [ ] Explained ML anomaly detection
+- [ ] Downloaded Basic PDF with Cumulative Prognostics section
+- [ ] Explained ML anomaly detection + Degradation Index
 - [ ] Showed explainability panel
 - [ ] Mentioned real-world use case
 

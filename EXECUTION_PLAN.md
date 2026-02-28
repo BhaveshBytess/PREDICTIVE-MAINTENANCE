@@ -366,6 +366,29 @@ This document works in conjunction with:
 
 ---
 
+## Phase 20 — Cumulative Prognostics & Demo Hardening ✅ COMPLETE
+**Objective:** Replace instantaneous health scoring with a cumulative Degradation Index (DI), tune sensitivity for demo timing, and harden deployment.
+
+* **Deliverables:**
+    * **Degradation Index Engine:** Monotonic DI accumulator in `assessor.py` with dead-zone (`HEALTHY_FLOOR=0.65`), sensitivity constant (`0.005`), and RUL projection
+    * **DI Hydration:** On restart, last DI value recovered from InfluxDB via `|> last()` query
+    * **Purge DI Reset:** `POST /system/purge` writes DI=0.0 to InfluxDB (InfluxDB Serverless v3 doesn't support range deletes)
+    * **Report Enrichment:** PDF and Excel generators include Degradation Index, Damage Rate, and RUL
+    * **CORS Hardening:** PUT/DELETE/OPTIONS methods, guaranteed localhost origins
+    * **Env Validation:** Checks `settings` object instead of raw `os.environ` (no false warnings)
+    * **openpyxl Dependency:** Restored in `requirements.txt` for Excel report generation
+    * **37 degradation-specific unit tests** in `tests/test_degradation.py`
+* **Exit Criteria:**
+    * ✅ Health stays at 100% during healthy monitoring (dead-zone prevents phantom damage)
+    * ✅ Critical fault degrades health from 100% → 0% in ~4-5 minutes
+    * ✅ DI survives backend restarts (hydration from InfluxDB verified)
+    * ✅ Purge resets DI to 0.0 and health to 100%
+    * ✅ PDF report shows Cumulative Prognostics section (DI%, Damage Rate, RUL)
+    * ✅ Excel Summary sheet includes DI, Damage Rate, RUL rows
+    * ✅ 37/37 degradation tests passing
+
+---
+
 ## Final Statement
 This execution plan is **binding**.
 If any step seems inconvenient, it exists to prevent failure later.

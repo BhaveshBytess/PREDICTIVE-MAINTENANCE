@@ -121,8 +121,8 @@ class TestExcelGeneration:
         buffer = io.BytesIO(excel_bytes)
         df = pd.read_excel(buffer, sheet_name='Summary')
         
-        # Should have Field and Value columns
-        assert 'Field' in df.columns
+        # Should have Metric and Value columns
+        assert 'Metric' in df.columns
         assert 'Value' in df.columns
         
         # Should contain asset ID
@@ -176,8 +176,8 @@ class TestSnapshotRule:
         buffer = io.BytesIO(excel_bytes)
         df = pd.read_excel(buffer, sheet_name='Summary')
         
-        # The exact value should be in the Excel
-        assert 42 in df['Value'].values
+        # The exact value should be in the Excel (stored as "42/100" string)
+        assert '42/100' in df['Value'].values
 
     def test_uses_provided_timestamp_in_excel(self):
         """Report should use provided timestamp in Excel."""

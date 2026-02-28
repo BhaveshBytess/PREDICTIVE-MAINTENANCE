@@ -44,8 +44,9 @@ An end-to-end **Predictive Maintenance** system that monitors industrial assets 
 | 📄 **Reporting** | Role-specialized reports: Executive PDF (Plant Managers), Multi-sheet Excel (Analysts), 5-page Industrial Certificate (Engineers) |
 | 📝 **Operator Logs** | Ground-truth maintenance event logging with InfluxDB persistence for supervised ML training |
 | 🎯 **Baseline Benchmarking** | Live status cards display baseline target values for instant comparison |
-| 🔄 **Purge & Re-Calibrate** | One-click system reset: wipes InfluxDB data + in-memory state, returns to IDLE |
+| 🔄 **Purge & Re-Calibrate** | One-click system reset: wipes InfluxDB data + DI state, returns to IDLE |
 | 🏓 **Keep-Alive Heartbeat** | 10-minute `/ping` heartbeat prevents Render free-tier cold starts |
+| 📉 **Cumulative Prognostics** | Monotonic Degradation Index (DI), Damage Rate, and Remaining Useful Life (RUL) |
 
 ---
 
@@ -250,7 +251,7 @@ POST /system/purge
 Response: { "status": "purged", "message": "All data and models cleared. System reset to IDLE." }
 ```
 
-> Deletes all InfluxDB data, clears in-memory baselines/detectors/history, and resets state to IDLE.
+> Writes DI=0.0 to InfluxDB, clears in-memory baselines/detectors/history, and resets state to IDLE.
 
 ---
 
@@ -302,8 +303,24 @@ Each 1-second window of 100 raw sensor points is reduced to a 16-D statistical f
 
 ### Health Assessment
 
+Health is derived from the **Cumulative Degradation Index (DI)**, a monotonically increasing damage accumulator:
+
 ```python
-health_score = 100 * (1.0 - anomaly_score)
+# Dead-zone: healthy noise produces zero damage
+HEALTHY_FLOOR = 0.65
+if batch_score < HEALTHY_FLOOR:
+    effective_severity = 0.0
+else:
+    effective_severity = (batch_score - HEALTHY_FLOOR) / (1.0 - HEALTHY_FLOOR)
+
+# Cumulative damage increment
+SENSITIVITY_CONSTANT = 0.005
+DI_increment = (effective_severity ** 2) * SENSITIVITY_CONSTANT * dt
+DI = min(DI + DI_increment, 1.0)   # monotonic, capped at 1.0
+
+# Health & RUL derived from DI
+health_score = round(100 * (1.0 - DI))
+RUL_hours = (1.0 - DI) / max(damage_rate, 1e-9)
 
 # Risk Classification
 if health_score < 25:  risk = CRITICAL
@@ -311,6 +328,12 @@ elif health_score < 50: risk = HIGH
 elif health_score < 75: risk = MODERATE
 else:                   risk = LOW
 ```
+
+**Key properties:**
+- **Monotonic:** DI never decreases (except on explicit purge). A quiet minute doesn't erase past damage.
+- **Dead-Zone:** Batch scores below 0.65 (healthy noise) accumulate zero damage.
+- **Hydration:** On restart, DI is recovered from InfluxDB (`|> last()`), so state survives process restarts.
+- **Purge Reset:** `POST /system/purge` writes DI=0.0 to InfluxDB and clears in-memory state.
 
 ---
 
@@ -445,6 +468,7 @@ Key architectural decisions are documented in [`ENGINEERING_LOG.md`](ENGINEERING
 - **Phase 17**: Noise suppression — 25% tolerance, majority-rules aggregation (≥15/100), 2s event debounce
 - **Phase 18**: Cloud recovery — lazy-loaded ML imports to prevent Render 503, `/ping` endpoint, `from __future__ import annotations` for deferred type evaluation
 - **Phase 19**: Baseline benchmarking on status cards, deep system purge (`/system/purge`), report refinement (real anomaly scores, sanitized operator logs)
+- **Phase 20**: Cumulative Degradation Index (DI) engine with dead-zone (`HEALTHY_FLOOR=0.65`), sensitivity tuning (`SENSITIVITY_CONSTANT=0.005`), DI hydration from InfluxDB, purge DI-reset, CORS hardening, report enrichment with DI/Damage-Rate/RUL
 - **Scoring**: Batch-feature inference (primary) with legacy model fallback
 
 ---

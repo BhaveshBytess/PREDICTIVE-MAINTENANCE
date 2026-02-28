@@ -535,3 +535,48 @@
 * **Key Learning:** Reports are the permanent record. Every column must be populated with real data, and every text field must be sanitized. Test data in production reports destroys credibility.
 
 ---
+
+## [Phase 20] - Cumulative Degradation Index (DI) Engine
+
+* **Context:** Health score was recalculated from scratch on every poll. A momentary quiet anomaly score could flip health from 30% to 95%, giving operators a false "all-clear".
+* **The Hurdle:** IsolationForest batch_score on healthy data ranged 0.1–0.5 (contamination=0.05). Without a dead-zone, healthy noise accumulated phantom damage — the "Self-Harming DI" bug. Motor health dropped to 66% on startup with no fault injected.
+* **The Solution:**
+  - **Monotonic Degradation Index (DI):** `DI_inc = (effective_severity²) × SENSITIVITY_CONSTANT × dt`. DI is cumulative and never decreases (except on explicit purge).
+  - **Dead-Zone (HEALTHY_FLOOR=0.65):** Batch scores below 0.65 produce zero damage. Scores ≥ 0.65 are remapped: `effective_severity = (score - 0.65) / 0.35`.
+  - **SENSITIVITY_CONSTANT=0.005:** Tuned so a critical fault drives health from 100% → 0% in ~4-5 minutes (demo-friendly pace).
+  - **RUL Projection:** `RUL_hours = (1.0 - DI) / max(damage_rate, 1e-9)`. Returns ∞ when damage_rate ≈ 0.
+  - **DI Hydration:** On restart, the last DI value is read from InfluxDB (`|> last()`) so state survives process restarts.
+* **Key Learning:** Cumulative damage models (DI) are fundamentally more realistic than instantaneous health scoring. The dead-zone is essential to prevent healthy-mode noise from accumulating phantom damage.
+
+---
+
+## [Phase 20] - Purge DI Reset (InfluxDB Serverless v3)
+
+* **Context:** The purge endpoint needed to reset DI to 0.0 so demos can start fresh.
+* **The Hurdle:** InfluxDB Cloud Serverless (v3) does not support the `DELETE` API for range deletes — returns HTTP 405. Cannot simply delete the old DI point.
+* **The Solution:** Write a new DI=0.0 data point to InfluxDB with the current timestamp. Since hydration uses `|> last()`, the newest point (DI=0.0) wins. Also pre-populate `_degradation_state["Motor-01"]` in memory with `{"degradation_index": 0.0, "hydrated": True}` to skip stale hydration.
+* **Key Learning:** When you can't delete in a time-series DB, write a newer authoritative value. The `|> last()` pattern makes the newest point canonical.
+
+---
+
+## [Phase 20] - Demo Tuning & Deployment Hardening
+
+* **Context:** Preparing the system for live demonstrations and stable local/cloud operation.
+* **The Hurdle:** Multiple small issues compounded: CORS blocked PUT/DELETE methods, env validation warned falsely, requirements.txt listed packages not installed (and missed openpyxl), sensitivity was too slow for demo timing.
+* **The Solution:**
+  - **CORS:** Added PUT, DELETE, OPTIONS to allowed methods; guaranteed `localhost` + `127.0.0.1` origins for all common ports.
+  - **Env Validation:** Checked `settings` object (which loads from `.env`) instead of raw `os.environ`, fixing false warnings.
+  - **requirements.txt:** Pinned to actual installed versions; removed missing packages; restored `openpyxl==3.1.5` for Excel generation.
+  - **Sensitivity:** Changed `SENSITIVITY_CONSTANT` from `0.0005` to `0.005` (10× faster degradation).
+* **Key Learning:** Demo-ready means every path works on first click. Small friction (wrong CORS method, missing pip package) destroys demo confidence.
+
+---
+
+## [Phase 20] - Report Enrichment with Prognostics
+
+* **Context:** PDF and Excel reports showed health score and risk level but not the underlying Degradation Index, Damage Rate, or RUL.
+* **The Hurdle:** DI/damage_rate live in `_degradation_state` (system_routes.py), not in the `HealthReport` model. The report generators only received `HealthReport` + `sensor_data`.
+* **The Solution:** Added optional `degradation_index`, `damage_rate`, `rul_hours` parameters to both `generate_pdf_report()` and `generate_excel_report()`. The download endpoint in `integration_routes.py` now imports `_degradation_state`, reads current DI values, and passes them to generators. The PDF shows a "Cumulative Prognostics" section (DI%, Damage Rate, RUL). The Excel Summary sheet includes 3 new rows (DI, Damage Rate, RUL).
+* **Key Learning:** Report artifacts must reflect the full diagnostic picture. DI and RUL are the most decision-relevant metrics for maintenance planners — omitting them from downloadable reports defeats the purpose of cumulative prognostics.
+
+---

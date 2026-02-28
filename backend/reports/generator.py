@@ -139,7 +139,10 @@ def generate_filename(asset_id: str, timestamp: datetime, extension: str) -> str
 
 def generate_pdf_report(
     report: HealthReport,
-    sensor_history: Optional[List[Dict[str, Any]]] = None
+    sensor_history: Optional[List[Dict[str, Any]]] = None,
+    degradation_index: Optional[float] = None,
+    damage_rate: Optional[float] = None,
+    rul_hours: Optional[float] = None,
 ) -> bytes:
     """
     Generate Executive Summary PDF for Plant Managers.
@@ -147,11 +150,15 @@ def generate_pdf_report(
     A high-impact 1-pager with:
     - Header: Machine ID + Overall Health Grade (A/B/C)
     - KPI Box: Max Vibration, Total Run Time, Critical Alerts count
+    - Cumulative Prognostics: DI, Damage Rate, RUL
     - Maintenance Snapshot: Last 2 Operator Logs
     
     Args:
         report: Persisted HealthReport
         sensor_history: Optional list of sensor readings for metrics
+        degradation_index: Current DI (0.0 = new, 1.0 = failed)
+        damage_rate: Instantaneous damage rate (DI/s)
+        rul_hours: Remaining Useful Life in hours
         
     Returns:
         PDF file as bytes
@@ -326,7 +333,46 @@ def generate_pdf_report(
         ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
     ]))
     story.append(kpi_table)
-    story.append(Spacer(1, 25))
+    story.append(Spacer(1, 20))
+    
+    # === CUMULATIVE PROGNOSTICS (DI / Damage Rate / RUL) ===
+    if degradation_index is not None:
+        story.append(Paragraph("Cumulative Prognostics", section_style))
+        story.append(Spacer(1, 8))
+        
+        di_pct = f"{degradation_index * 100:.1f}%"
+        dr_display = f"{damage_rate:.6f} /s" if damage_rate and damage_rate > 1e-9 else "0 (Healthy)"
+        if rul_hours is not None and rul_hours < 99999.0:
+            rul_display = f"{rul_hours:.1f} h"
+        else:
+            rul_display = "∞ (No active damage)"
+        
+        prog_data = [[
+            Paragraph(di_pct, kpi_value_style),
+            Paragraph(dr_display,
+                      ParagraphStyle('DRVal', fontSize=16, fontName='Helvetica-Bold',
+                                     textColor=colors.HexColor('#1f2937'), alignment=TA_CENTER)),
+            Paragraph(rul_display,
+                      ParagraphStyle('RULVal', fontSize=18, fontName='Helvetica-Bold',
+                                     textColor=colors.HexColor('#1f2937'), alignment=TA_CENTER)),
+        ], [
+            Paragraph("Degradation Index", kpi_label_style),
+            Paragraph("Damage Rate", kpi_label_style),
+            Paragraph("Remaining Useful Life", kpi_label_style),
+        ]]
+        
+        prog_table = Table(prog_data, colWidths=[2.3*inch, 2.3*inch, 2.3*inch])
+        prog_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#fef3c7')),
+            ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#f59e0b')),
+            ('INNERGRID', (0, 0), (-1, -1), 1, colors.HexColor('#fde68a')),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        story.append(prog_table)
+        story.append(Spacer(1, 20))
     
     # === MAINTENANCE SNAPSHOT (Last 2 logs) ===
     story.append(Paragraph("Recent Maintenance Activity", section_style))
@@ -407,13 +453,16 @@ def generate_pdf_report(
 
 def generate_excel_report(
     report: HealthReport,
-    sensor_history: Optional[List[Dict[str, Any]]] = None
+    sensor_history: Optional[List[Dict[str, Any]]] = None,
+    degradation_index: Optional[float] = None,
+    damage_rate: Optional[float] = None,
+    rul_hours: Optional[float] = None,
 ) -> bytes:
     """
     Generate Multi-Sheet Excel Report for Analysts.
     
     Sheets:
-    1. Summary: High-level metrics (Total Duration, Max Vibration, Total Anomalies)
+    1. Summary: High-level metrics (Total Duration, Max Vibration, Total Anomalies, DI, RUL)
     2. Operator_Logs: Human ground truth data
     3. Raw_Sensor_Data: Complete timeline of sensor readings
     
@@ -443,40 +492,55 @@ def generate_excel_report(
         total_anomalies = sum(1 for r in sensor_history if r.get('is_faulty', False) or r.get('is_anomaly', False))
     
     # === SHEET 1: SUMMARY ===
-    summary_data = {
-        'Metric': [
-            'Report ID',
-            'Asset ID',
-            'Report Generated (UTC)',
-            'Health Score',
-            'Health Grade',
-            'Risk Level',
-            'Maintenance Window (Days)',
-            'Model Version',
-            '---',
-            'Total Data Points',
-            'Session Duration (Hours)',
-            'Max Vibration (g)',
-            'Max Current (A)',
-            'Total Anomalies Detected',
-        ],
-        'Value': [
-            report.report_id,
-            report.asset_id,
-            report.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC'),
-            f"{report.health_score}/100",
-            get_health_grade(report.health_score)[0],  # Just the grade letter
-            report.risk_level.value,
-            report.maintenance_window_days,
-            report.metadata.model_version,
-            '---',
-            total_readings,
-            f"{total_duration_hours:.2f}",
-            f"{max_vibration:.4f}",
-            f"{max_current:.2f}",
-            total_anomalies,
-        ]
-    }
+    summary_metrics = [
+        'Report ID',
+        'Asset ID',
+        'Report Generated (UTC)',
+        'Health Score',
+        'Health Grade',
+        'Risk Level',
+        'Maintenance Window (Days)',
+        'Model Version',
+        '---',
+        'Degradation Index (DI)',
+        'Damage Rate (DI/s)',
+        'Remaining Useful Life (Hours)',
+        '---',
+        'Total Data Points',
+        'Session Duration (Hours)',
+        'Max Vibration (g)',
+        'Max Current (A)',
+        'Total Anomalies Detected',
+    ]
+    
+    di_display = f"{degradation_index * 100:.1f}%" if degradation_index is not None else "—"
+    dr_display = f"{damage_rate:.6f}" if damage_rate is not None and damage_rate > 1e-9 else "0"
+    if rul_hours is not None and rul_hours < 99999.0:
+        rul_display = f"{rul_hours:.1f}"
+    else:
+        rul_display = "∞ (No active damage)"
+    
+    summary_values = [
+        report.report_id,
+        report.asset_id,
+        report.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC'),
+        f"{report.health_score}/100",
+        get_health_grade(report.health_score)[0],
+        report.risk_level.value,
+        report.maintenance_window_days,
+        report.metadata.model_version,
+        '---',
+        di_display,
+        dr_display,
+        rul_display,
+        '---',
+        total_readings,
+        f"{total_duration_hours:.2f}",
+        f"{max_vibration:.4f}",
+        f"{max_current:.2f}",
+        total_anomalies,
+    ]
+    summary_data = {'Metric': summary_metrics, 'Value': summary_values}
     summary_df = pd.DataFrame(summary_data)
     
     # === SHEET 2: OPERATOR LOGS (Ground Truth) ===

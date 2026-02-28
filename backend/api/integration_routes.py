@@ -485,8 +485,23 @@ async def download_report(
             if 'anomaly_score' not in reading or reading.get('anomaly_score') is None:
                 reading['anomaly_score'] = 0.0
     
+    # Phase 20: Retrieve DI / damage_rate / RUL for report enrichment
+    from backend.api.system_routes import _degradation_state
+    from backend.rules.assessor import rul_from_degradation
+    di_val = None
+    dr_val = None
+    rul_val = None
+    di_state = _degradation_state.get(asset_id)
+    if di_state and di_state.get("hydrated"):
+        di_val = di_state.get("degradation_index", 0.0)
+        dr_val = di_state.get("last_damage_rate", 0.0)
+        rul_val = rul_from_degradation(di_val, dr_val)
+    
     if format.lower() == "xlsx":
-        content = generate_excel_report(report, sensor_data)
+        content = generate_excel_report(
+            report, sensor_data,
+            degradation_index=di_val, damage_rate=dr_val, rul_hours=rul_val
+        )
         filename = generate_filename(asset_id, report.timestamp, "xlsx")
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     elif format.lower() == "industrial":
@@ -495,7 +510,10 @@ async def download_report(
         filename = generate_industrial_filename(asset_id, report.timestamp)
         media_type = "application/pdf"
     else:
-        content = generate_pdf_report(report, sensor_data)
+        content = generate_pdf_report(
+            report, sensor_data,
+            degradation_index=di_val, damage_rate=dr_val, rul_hours=rul_val
+        )
         filename = generate_filename(asset_id, report.timestamp, "pdf")
         media_type = "application/pdf"
     
