@@ -1,0 +1,65 @@
+ssFFFFF.FsFFFFFssFF..................................................... [ 40%]
+........................................................................ [ 81%]
+............FFF...FFFFFssFssssss.                                        [100%]
+================================== FAILURES ===================================
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\storage\client.py:65: backend.storage.client.InfluxDBClientError: Connection failed: Failed to ping InfluxDB
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\tests\test_assessor.py:41: assert 38 == 50
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\tests\test_assessor.py:51: assert 58 == 70
+C:\Users\oumme\AppData\Roaming\Python\Python313\site-packages\pandas\io\excel\_openpyxl.py:57: ModuleNotFoundError: No module named 'openpyxl'
+C:\Users\oumme\AppData\Roaming\Python\Python313\site-packages\pandas\io\excel\_openpyxl.py:57: ModuleNotFoundError: No module named 'openpyxl'
+C:\Users\oumme\AppData\Roaming\Python\Python313\site-packages\pandas\io\excel\_openpyxl.py:57: ModuleNotFoundError: No module named 'openpyxl'
+C:\Users\oumme\AppData\Roaming\Python\Python313\site-packages\pandas\io\excel\_openpyxl.py:57: ModuleNotFoundError: No module named 'openpyxl'
+C:\Users\oumme\AppData\Roaming\Python\Python313\site-packages\pandas\io\excel\_openpyxl.py:57: ModuleNotFoundError: No module named 'openpyxl'
+C:\Users\oumme\AppData\Roaming\Python\Python313\site-packages\pandas\io\excel\_openpyxl.py:57: ModuleNotFoundError: No module named 'openpyxl'
+C:\Users\oumme\AppData\Roaming\Python\Python313\site-packages\pandas\io\excel\_openpyxl.py:57: ModuleNotFoundError: No module named 'openpyxl'
+C:\Users\oumme\AppData\Roaming\Python\Python313\site-packages\pandas\io\excel\_openpyxl.py:57: ModuleNotFoundError: No module named 'openpyxl'
+C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\tests\test_storage.py:91: AttributeError: 'InfluxDBConfig' object has no attribute 'host'
+============================== warnings summary ===============================
+backend\api\operator_routes.py:68
+  C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\api\operator_routes.py:68: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class LogEntryRequest(BaseModel):
+
+backend\generator\schemas.py:70
+  C:\Users\oumme\OneDrive\Desktop\Predictive Maintenance\backend\generator\schemas.py:70: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CanonicalSensorEvent(BaseModel):
+
+..\..\..\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_generate_schema.py:319
+..\..\..\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_generate_schema.py:319
+  C:\Users\oumme\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_generate_schema.py:319: PydanticDeprecatedSince20: `json_encoders` is deprecated. See https://docs.pydantic.dev/2.12/concepts/serialization/#custom-serializers for alternatives. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_api.py::TestPowerKwRejection::test_power_kw_in_request_returns_422
+FAILED tests/test_api.py::TestEventIdValidation::test_invalid_uuid_returns_422
+FAILED tests/test_api.py::TestEventIdValidation::test_uuid_v1_returns_422 - b...
+FAILED tests/test_api.py::TestEventIdValidation::test_empty_event_id_returns_422
+FAILED tests/test_api.py::TestTimestampValidation::test_naive_datetime_returns_422
+FAILED tests/test_api.py::TestOperatingStateValidation::test_invalid_operating_state_returns_422
+FAILED tests/test_api.py::TestPowerFactorValidation::test_power_factor_above_1_returns_422
+FAILED tests/test_api.py::TestPowerFactorValidation::test_power_factor_negative_returns_422
+FAILED tests/test_api.py::TestMissingFields::test_missing_event_id_returns_422
+FAILED tests/test_api.py::TestMissingFields::test_missing_signals_returns_422
+FAILED tests/test_api.py::TestMissingFields::test_missing_voltage_returns_422
+FAILED tests/test_assessor.py::TestHealthScoreComputation::test_health_formula_is_deterministic
+FAILED tests/test_assessor.py::TestHealthScoreComputation::test_same_input_same_output
+FAILED tests/test_reports.py::TestExcelGeneration::test_generates_valid_excel_bytes
+FAILED tests/test_reports.py::TestExcelGeneration::test_excel_starts_with_magic_bytes
+FAILED tests/test_reports.py::TestExcelGeneration::test_excel_can_be_read_by_pandas
+FAILED tests/test_reports.py::TestSnapshotRule::test_uses_provided_health_score_in_excel
+FAILED tests/test_reports.py::TestSnapshotRule::test_uses_provided_timestamp_in_excel
+FAILED tests/test_reports.py::TestContentCompleteness::test_includes_maintenance_window
+FAILED tests/test_reports.py::TestContentCompleteness::test_includes_risk_level
+FAILED tests/test_reports.py::TestContentCompleteness::test_includes_model_version
+FAILED tests/test_storage.py::TestConnection::test_config_loads_from_environment
+22 failed, 142 passed, 13 skipped, 4 warnings in 93.10s (0:01:33)

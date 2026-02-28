@@ -120,7 +120,7 @@ def fetch_maintenance_logs_for_report(
                 'technician_id': record.get('technician_id', 'Operator')  # Default value
             })
         
-        logger.info(f"[OK] Fetched {len(logs)} maintenance logs for report")
+        logger.info(f"📋 Fetched {len(logs)} maintenance logs for report")
         return logs
         
     except Exception as e:

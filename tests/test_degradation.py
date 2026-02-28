@@ -39,9 +39,9 @@ class TestComputeCumulativeDegradation:
         assert rate == 0.0
 
     def test_formula_matches_spec(self):
-        """DI_inc = (severity^2) * SENSITIVITY_CONSTANT for dt=1."""
+        """DI_inc = (severity^2) * 0.0005 for dt=1."""
         severity = 0.8
-        expected_rate = (0.8 ** 2) * SENSITIVITY_CONSTANT  # 0.64 * 0.002 = 0.00128
+        expected_rate = (0.8 ** 2) * SENSITIVITY_CONSTANT  # 0.64 * 0.0005 = 0.00032
         new_di, rate = compute_cumulative_degradation(0.0, severity)
         assert abs(rate - expected_rate) < 1e-10
         assert abs(new_di - expected_rate) < 1e-10
@@ -139,7 +139,7 @@ class TestRulFromDegradation:
         assert rul == 99999.0
 
     def test_known_rate(self):
-        """DI=0.5, rate=SENSITIVITY_CONSTANT/s → remaining=0.5 → 0.5/rate."""
+        """DI=0.5, rate=0.0005/s → remaining=0.5 → 0.5/0.0005 = 1000s = 0.28h."""
         rul = rul_from_degradation(0.5, SENSITIVITY_CONSTANT)
         expected = (1.0 - 0.5) / SENSITIVITY_CONSTANT / 3600.0
         assert abs(rul - expected) < 0.01
@@ -231,9 +231,9 @@ class TestDegradationLifecycle:
 
     def test_healthy_to_degraded_lifecycle(self):
         """
-        Simulate: 100 healthy seconds → 200 fault seconds → verify DI progression.
-        Math: 200s × (0.9^2 × 0.002) = 200 × 0.00162 = 0.324 DI
-        Health = (1 - 0.324) × 100 ≈ 68 → MODERATE risk
+        Simulate: 100 healthy seconds → 500 fault seconds → verify DI progression.
+        Math: 500s × (0.9^2 × 0.0005) = 500 × 0.000405 = 0.2025 DI
+        Health = (1 - 0.2025) × 100 ≈ 80 → LOW risk (above MODERATE=75)
         """
         di = 0.0
 
@@ -243,18 +243,18 @@ class TestDegradationLifecycle:
         # Should barely move
         assert di < 0.001
 
-        # 200 seconds of severe fault (score ≈ 0.9)
-        for _ in range(200):
+        # 500 seconds of severe fault (score ≈ 0.9)
+        for _ in range(500):
             old = di
             di, rate = compute_cumulative_degradation(di, 0.9)
             assert di >= old  # Monotonicity
 
         # DI should be meaningful but not maxed
-        # 200 * (0.81 * 0.002) ≈ 0.324
+        # 500 * (0.81 * 0.0005) ≈ 0.2025
         assert di > 0.1
         assert di < 1.0
 
-        # Health should reflect damage: (1 - 0.324) * 100 ≈ 68
+        # Health should reflect damage: (1 - 0.2025) * 100 ≈ 80
         health = health_from_degradation(di)
         assert health < 90
 
@@ -265,11 +265,11 @@ class TestDegradationLifecycle:
 
     def test_prolonged_fault_causes_escalation(self):
         """
-        500 seconds of max severity → DI=1.0, health=0, CRITICAL.
-        (1.0^2 × 0.002 × 500 = 1.0)
+        2000 seconds of max severity → DI=1.0, health=0, CRITICAL.
+        (1.0^2 × 0.0005 × 2000 = 1.0)
         """
         di = 0.0
-        for _ in range(500):
+        for _ in range(2000):
             di, rate = compute_cumulative_degradation(di, 1.0)
         
         assert di == 1.0 or abs(di - 1.0) < 1e-6  # float precision

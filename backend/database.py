@@ -98,9 +98,9 @@ class InfluxWrapper:
         
         # Check if credentials are configured
         if not settings.INFLUX_TOKEN:
-            print("[DB] [WARN] INFLUX_TOKEN not configured - running in MOCK MODE")
+            print("[DB] ⚠️  INFLUX_TOKEN not configured — running in MOCK MODE")
             logger.warning(
-                "[WARN] INFLUX_TOKEN not configured - running in MOCK MODE\n"
+                "⚠️  INFLUX_TOKEN not configured — running in MOCK MODE\n"
                 "   Data will be logged to console instead of InfluxDB.\n"
                 "   Set INFLUX_TOKEN in .env to enable persistence."
             )
@@ -121,15 +121,15 @@ class InfluxWrapper:
             # NOTE: We skip ping() check because InfluxDB Cloud returns 'fail' 
             # even when working. The debug script proved writes work regardless.
             
-            print(f"[DB] [OK] InfluxDB client initialized (Real Mode)")
-            logger.info(f"[OK] Connected to InfluxDB at {settings.INFLUX_URL}")
+            print(f"[DB] ✅ InfluxDB client initialized (Real Mode)")
+            logger.info(f"✅ Connected to InfluxDB at {settings.INFLUX_URL}")
             self._mock_mode = False
             
         except Exception as e:
-            print(f"[DB] [ERR] InfluxDB connection failed: {e}")
+            print(f"[DB] ❌ InfluxDB connection failed: {e}")
             logger.warning(
-                f"[WARN] InfluxDB connection failed: {e}\n"
-                "   Running in MOCK MODE - data will be logged to console."
+                f"⚠️  InfluxDB connection failed: {e}\n"
+                "   Running in MOCK MODE — data will be logged to console."
             )
             self._mock_mode = True
             if self._client:
@@ -214,15 +214,15 @@ class InfluxWrapper:
                 record=point
             )
             
-            print(f"[DB] [OK] Write SUCCESS to bucket '{self._bucket}'")
+            print(f"[DB] ✅ Write SUCCESS to bucket '{self._bucket}'")
             return True
             
         except InfluxDBError as e:
-            print(f"[DB] [ERR] InfluxDB write FAILED: {e}")
+            print(f"[DB] ❌ InfluxDB write FAILED: {e}")
             logger.error(f"InfluxDB write failed: {e}")
             return False
         except Exception as e:
-            print(f"[DB] [ERR] Unexpected write error: {e}")
+            print(f"[DB] ❌ Unexpected write error: {e}")
             logger.error(f"Unexpected write error: {e}")
             return False
     
@@ -310,15 +310,15 @@ class InfluxWrapper:
                 write_precision=WritePrecision.MS
             )
             
-            print(f"[DB] [OK] Batch of {len(points)} points written to bucket '{self._bucket}'")
+            print(f"[DB] ✅ Batch of {len(points)} points written to bucket '{self._bucket}'")
             return True
             
         except InfluxDBError as e:
-            print(f"[DB] [ERR] InfluxDB batch write FAILED: {e}")
+            print(f"[DB] ❌ InfluxDB batch write FAILED: {e}")
             logger.error(f"InfluxDB batch write failed: {e}")
             return False
         except Exception as e:
-            print(f"[DB] [ERR] Unexpected batch write error: {e}")
+            print(f"[DB] ❌ Unexpected batch write error: {e}")
             logger.error(f"Unexpected batch write error: {e}")
             return False
     
@@ -357,11 +357,11 @@ class InfluxWrapper:
             return results
             
         except InfluxDBError as e:
-            print(f"[DB] [ERR] InfluxDB query FAILED: {e}")
+            print(f"[DB] ❌ InfluxDB query FAILED: {e}")
             logger.error(f"InfluxDB query failed: {e}")
             return []
         except Exception as e:
-            print(f"[DB] [ERR] Unexpected query error: {e}")
+            print(f"[DB] ❌ Unexpected query error: {e}")
             logger.error(f"Unexpected query error: {e}")
             return []
 
@@ -458,15 +458,15 @@ from(bucket: "{self._bucket}")
             # FAILSAFE: Python-side sort guarantees chronological order
             results.sort(key=lambda x: x["timestamp"])
             
-            print(f"[DB] [OK] Sensor history query returned {len(results)} records")
+            print(f"[DB] ✅ Sensor history query returned {len(results)} records")
             return results
             
         except InfluxDBError as e:
-            print(f"[DB] [ERR] Sensor history query FAILED: {e}")
+            print(f"[DB] ❌ Sensor history query FAILED: {e}")
             logger.error(f"Sensor history query failed: {e}")
             return []
         except Exception as e:
-            print(f"[DB] [ERR] Unexpected sensor history query error: {e}")
+            print(f"[DB] ❌ Unexpected sensor history query error: {e}")
             logger.error(f"Unexpected sensor history query error: {e}")
             return []
     
@@ -492,7 +492,7 @@ from(bucket: "{self._bucket}")
             return 0.0
 
         if not self.is_connected:
-            print("[DB] [WARN] Cannot query DI - not connected")
+            print("[DB] ⚠️ Cannot query DI — not connected")
             return 0.0
 
         flux_query = f'''
@@ -511,12 +511,12 @@ from(bucket: "{self._bucket}")
                     val = record.get_value()
                     if val is not None:
                         di = float(val)
-                        print(f"[DB] [OK] Hydrated DI for {asset_id}: {di:.6f}")
+                        print(f"[DB] ✅ Hydrated DI for {asset_id}: {di:.6f}")
                         return di
-            print(f"[DB] No DI found for {asset_id} - starting at 0.0")
+            print(f"[DB] No DI found for {asset_id} — starting at 0.0")
             return 0.0
         except Exception as e:
-            print(f"[DB] [WARN] DI hydration query failed: {e}")
+            print(f"[DB] ⚠️ DI hydration query failed: {e}")
             logger.error(f"DI hydration query failed for {asset_id}: {e}")
             return 0.0
 
@@ -565,11 +565,11 @@ from(bucket: "{self._bucket}")
                 bucket=self._bucket,
                 org=self._org,
             )
-            print("[DB] [OK] All data deleted from bucket")
+            print("[DB] \u2705 All data deleted from bucket")
             logger.info(f"All data deleted from bucket '{self._bucket}'")
             return True
         except Exception as e:
-            print(f"[DB] [ERR] Delete failed: {e}")
+            print(f"[DB] \u274c Delete failed: {e}")
             logger.error(f"Failed to delete data: {e}")
             return False
     

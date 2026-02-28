@@ -29,12 +29,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
-    logger.info(f"[START] Starting {settings.PROJECT_NAME}")
-    logger.info(f"[ENV] Running in {settings.ENVIRONMENT} mode")
-    logger.info(f"[DB] InfluxDB: {settings.INFLUX_URL}")
+    logger.info(f"🚀 Starting {settings.PROJECT_NAME}")
+    logger.info(f"📍 Running in {settings.ENVIRONMENT} mode")
+    logger.info(f"🔗 InfluxDB: {settings.INFLUX_URL}")
     yield
     # Shutdown
-    logger.info(f"[STOP] Shutting down {settings.PROJECT_NAME}")
+    logger.info(f"👋 Shutting down {settings.PROJECT_NAME}")
 
 
 # Application metadata

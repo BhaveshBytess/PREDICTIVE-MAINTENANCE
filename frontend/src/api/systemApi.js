@@ -2,11 +2,9 @@
  * System Control API Client
  * 
  * Provides functions for system lifecycle control endpoints.
- * Includes retry logic for industrial-grade resilience.
  */
 
 import { API_URL } from '../config'
-import { resilientFetch } from './resilientFetch'
 
 const API_BASE = API_URL;
 
@@ -15,7 +13,7 @@ const API_BASE = API_URL;
  * @returns {Promise<{state: string, message: string, started_at: string|null, fault_type: string|null}>}
  */
 export async function getSystemState() {
-    const response = await resilientFetch(`${API_BASE}/system/state`);
+    const response = await fetch(`${API_BASE}/system/state`);
     if (!response.ok) {
         throw new Error('Failed to get system state');
     }
@@ -28,7 +26,7 @@ export async function getSystemState() {
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
 export async function calibrateSystem(assetId = 'Motor-01') {
-    const response = await resilientFetch(`${API_BASE}/system/calibrate?asset_id=${assetId}`, {
+    const response = await fetch(`${API_BASE}/system/calibrate?asset_id=${assetId}`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -46,7 +44,7 @@ export async function calibrateSystem(assetId = 'Motor-01') {
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
 export async function injectFault(assetId = 'Motor-01', faultType = 'DEFAULT', severity = 'SEVERE') {
-    const response = await resilientFetch(
+    const response = await fetch(
         `${API_BASE}/system/inject-fault?asset_id=${assetId}&fault_type=${faultType}&severity=${severity}`,
         { method: 'POST' }
     );
@@ -63,7 +61,7 @@ export async function injectFault(assetId = 'Motor-01', faultType = 'DEFAULT', s
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
 export async function resetSystem(assetId = 'Motor-01') {
-    const response = await resilientFetch(`${API_BASE}/system/reset?asset_id=${assetId}`, {
+    const response = await fetch(`${API_BASE}/system/reset?asset_id=${assetId}`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -78,7 +76,7 @@ export async function resetSystem(assetId = 'Motor-01') {
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
 export async function stopSession() {
-    const response = await resilientFetch(`${API_BASE}/system/stop`, {
+    const response = await fetch(`${API_BASE}/system/stop`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -94,7 +92,7 @@ export async function stopSession() {
  * @returns {Promise<{status: string, message: string, state: string}>}
  */
 export async function purgeSystem() {
-    const response = await resilientFetch(`${API_BASE}/system/purge`, {
+    const response = await fetch(`${API_BASE}/system/purge`, {
         method: 'POST',
     });
     if (!response.ok) {

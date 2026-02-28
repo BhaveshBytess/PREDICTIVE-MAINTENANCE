@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import styles from './OperatorLog.module.css'
 import { API_URL } from '../../config'
-import { resilientFetch } from '../../api/resilientFetch'
 
 function OperatorLog({ onLogAdded }) {
     // Options fetched from backend
@@ -27,7 +26,7 @@ function OperatorLog({ onLogAdded }) {
                 setIsLoadingOptions(true)
                 setOptionsError(null)
 
-                const response = await resilientFetch(`${API_URL}/api/log/types`)
+                const response = await fetch(`${API_URL}/api/log/types`)
                 
                 if (!response.ok) {
                     throw new Error(`Failed to fetch options: ${response.status}`)
@@ -87,7 +86,7 @@ function OperatorLog({ onLogAdded }) {
             console.log('Submitting maintenance log:', payload)
 
             // Send to backend
-            const response = await resilientFetch(`${API_URL}/api/log`, {
+            const response = await fetch(`${API_URL}/api/log`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

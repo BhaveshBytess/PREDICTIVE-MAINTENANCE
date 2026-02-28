@@ -213,7 +213,7 @@ async def create_log_entry(entry: LogEntryRequest) -> LogEntryResponse:
             )
         
         logger.info(
-            f"[OK] Maintenance log created: {event_id} | "
+            f"✅ Maintenance log created: {event_id} | "
             f"{entry.asset_id} | {entry.event_type.value} | {entry.severity.value}"
         )
         
@@ -345,7 +345,7 @@ async def get_logs(
                 logger.warning(f"Skipping malformed log record: {e}")
                 continue
         
-        logger.info(f"[OK] Retrieved {len(logs)} maintenance logs")
+        logger.info(f"✅ Retrieved {len(logs)} maintenance logs")
         
         return LogsListResponse(
             logs=logs,
