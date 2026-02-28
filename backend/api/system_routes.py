@@ -8,7 +8,8 @@ Provides lifecycle control endpoints for terminal-free demo:
 - POST /system/reset — Stop faults, return to healthy
 """
 
-import concurrent.futures
+import asyncio
+import logging
 import threading
 import time
 from datetime import datetime, timezone, timedelta
@@ -44,82 +45,107 @@ _batch_detectors: Dict[str, BatchAnomalyDetector] = {}
 # Keyed by asset_id. Values: {"degradation_index": float, "total_cycles": int,
 #                              "last_damage_rate": float, "hydrated": bool}
 _degradation_state: Dict[str, Dict[str, Any]] = {}
+_hydration_tasks: Dict[str, asyncio.Task] = {}  # Track background hydration tasks
 
+_logger = logging.getLogger("predictive_maintenance.system_routes")
 
-# Severity floor map: guarantees minimum anomaly score during known fault injection
-# so that even MILD/MEDIUM faults contribute noticeable cumulative damage.
-SEVERITY_FLOOR = {
-    "MILD":   0.30,   # floor → DI_inc ≥ 0.30² × 0.002 = 0.00018/s → ~92 min to DI=1.0
-    "MEDIUM": 0.60,   # floor → DI_inc ≥ 0.60² × 0.002 = 0.00072/s → ~23 min to DI=1.0
-    "SEVERE": 0.85,   # floor → DI_inc ≥ 0.85² × 0.002 = 0.00145/s → ~11 min to DI=1.0
-}
-
-_HYDRATION_TIMEOUT_S = 5.0
-
-# Background hydration executor — single thread, reused across assets
-_hydration_executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=1, thread_name_prefix="di-hydration"
-)
-
-
-def _hydrate_from_influx(asset_id: str) -> None:
-    """
-    Background task: query InfluxDB for the latest DI and patch the cached state.
-
-    Runs in _hydration_executor so the monitoring loop is never blocked.
-    If the query fails or times out, the state keeps its default (0.0).
-    """
-    try:
-        last_di = db.query_latest_degradation_index(asset_id)
-        # Only patch if the DB value is higher (monotonicity)
-        if asset_id in _degradation_state:
-            current = _degradation_state[asset_id]["degradation_index"]
-            if last_di > current:
-                _degradation_state[asset_id]["degradation_index"] = last_di
-                print(f"[DEGRADATION] [OK] Background hydration patched {asset_id}: DI={last_di:.6f}")
-            else:
-                print(f"[DEGRADATION] [OK] Background hydration complete for {asset_id}: "
-                      f"DB={last_di:.6f}, kept current={current:.6f}")
-        _degradation_state[asset_id]["hydrated"] = True
-    except Exception as e:
-        print(
-            f"[DEGRADATION] [WARN] Background hydration failed for {asset_id}. "
-            f"Continuing with DI={_degradation_state.get(asset_id, {}).get('degradation_index', 0.0):.6f}. "
-            f"Error: {e}"
-        )
-        # Mark hydrated anyway so we don't retry endlessly
-        if asset_id in _degradation_state:
-            _degradation_state[asset_id]["hydrated"] = True
+_HYDRATION_TIMEOUT_S = 5  # Max seconds to wait for InfluxDB hydration
 
 
 def _ensure_degradation_state(asset_id: str) -> Dict[str, Any]:
     """
-    Non-blocking startup hydration: guarantee degradation state exists for asset_id.
+    Lazy, Non-Blocking Hydration (Phase 20b).
 
-    Returns IMMEDIATELY with a default-zero state on first call, then fires off
-    a background thread to query InfluxDB and patch the DI if a higher value
-    is found.  This eliminates the race condition where a slow/cold InfluxDB
-    blocks the monitoring loop and causes 'Failed to Fetch' on the frontend.
+    Returns the degradation state dict *immediately* — never blocks.
 
-    Subsequent calls: return cached dict (no IO, no threads).
+    First call for an asset_id:
+      1. Creates state with DI=0.0, hydrated=False (instant).
+      2. Schedules a background asyncio task to query InfluxDB for the
+         last persisted DI.  If it succeeds within 5 s the in-memory
+         DI is silently patched upward.  If it fails or times out a
+         warning is logged — the server keeps running with DI=0.0.
+
+    Subsequent calls: return the cached dict (zero IO, zero latency).
     """
     if asset_id in _degradation_state:
         return _degradation_state[asset_id]
 
-    # Instant default — server stays responsive
-    state = {
+    # ── Instant initialisation (never blocks) ──
+    state: Dict[str, Any] = {
         "degradation_index": 0.0,
         "total_cycles": 0,
         "last_damage_rate": 0.0,
-        "hydrated": False,  # will flip to True when background query completes
+        "hydrated": False,  # will flip True once background recovery finishes
     }
     _degradation_state[asset_id] = state
-    print(f"[DEGRADATION] Hydration started in background for {asset_id} (using DI=0.0 until complete)")
+    _logger.info("[DEGRADATION] Initialised %s with DI=0.0 (background hydration pending)", asset_id)
+    print(f"[DEGRADATION] Initialised {asset_id} with DI=0.0 (background hydration pending)")
 
-    # Fire-and-forget: patch the DI asynchronously
-    _hydration_executor.submit(_hydrate_from_influx, asset_id)
+    # ── Schedule non-blocking InfluxDB recovery ──
+    try:
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(_hydrate_from_influx(asset_id))
+        _hydration_tasks[asset_id] = task
+    except RuntimeError:
+        # No running event loop (e.g. unit tests) — fall back to sync
+        _sync_hydrate_fallback(asset_id)
 
     return state
+
+
+async def _hydrate_from_influx(asset_id: str) -> None:
+    """
+    Background coroutine: query InfluxDB for the last DI and silently
+    patch in-memory state.  Times out after _HYDRATION_TIMEOUT_S.
+    Never raises — errors are logged and swallowed.
+    """
+    try:
+        last_di = await asyncio.wait_for(
+            asyncio.to_thread(db.query_latest_degradation_index, asset_id),
+            timeout=_HYDRATION_TIMEOUT_S,
+        )
+        if asset_id in _degradation_state:
+            old_di = _degradation_state[asset_id]["degradation_index"]
+            # Only patch upward (monotonicity) — loops may have already
+            # advanced DI past zero while we were querying.
+            if last_di > old_di:
+                _degradation_state[asset_id]["degradation_index"] = last_di
+                _logger.info("[DEGRADATION] Hydrated %s from InfluxDB: DI=%f", asset_id, last_di)
+                print(f"[DEGRADATION] Hydrated {asset_id} from InfluxDB: DI={last_di:.6f}")
+            else:
+                _logger.info("[DEGRADATION] InfluxDB DI (%f) <= live DI (%f) for %s — kept live value", last_di, old_di, asset_id)
+                print(f"[DEGRADATION] InfluxDB DI ({last_di:.6f}) <= live DI ({old_di:.6f}) for {asset_id} — kept live value")
+            _degradation_state[asset_id]["hydrated"] = True
+    except asyncio.TimeoutError:
+        _logger.warning("[DEGRADATION] InfluxDB hydration timed out (%ds) for %s — using DI=0.0", _HYDRATION_TIMEOUT_S, asset_id)
+        print(f"[DEGRADATION] ⚠️ InfluxDB hydration timed out ({_HYDRATION_TIMEOUT_S}s) for {asset_id} — using DI=0.0")
+        if asset_id in _degradation_state:
+            _degradation_state[asset_id]["hydrated"] = True
+    except Exception as exc:
+        _logger.warning("[DEGRADATION] InfluxDB hydration failed for %s: %s — using DI=0.0", asset_id, exc)
+        print(f"[DEGRADATION] ⚠️ InfluxDB hydration failed for {asset_id}: {exc} — using DI=0.0")
+        if asset_id in _degradation_state:
+            _degradation_state[asset_id]["hydrated"] = True
+    finally:
+        _hydration_tasks.pop(asset_id, None)
+
+
+def _sync_hydrate_fallback(asset_id: str) -> None:
+    """
+    Synchronous fallback used only when no asyncio event loop is running
+    (e.g. during unit tests).  Logs and swallows errors.
+    """
+    try:
+        last_di = db.query_latest_degradation_index(asset_id)
+        if asset_id in _degradation_state and last_di > _degradation_state[asset_id]["degradation_index"]:
+            _degradation_state[asset_id]["degradation_index"] = last_di
+        if asset_id in _degradation_state:
+            _degradation_state[asset_id]["hydrated"] = True
+        print(f"[DEGRADATION] Sync-hydrated {asset_id}: DI={last_di:.6f}")
+    except Exception as exc:
+        _logger.warning("[DEGRADATION] Sync hydration failed for %s: %s", asset_id, exc)
+        if asset_id in _degradation_state:
+            _degradation_state[asset_id]["hydrated"] = True
 
 
 router = APIRouter(prefix="/system", tags=["System Control"])
@@ -259,23 +285,17 @@ class SystemStateManager:
                 self._faulty_correct += 1
     
     def stop_background_task(self):
-        """Signal background thread to stop (non-blocking).
-        
-        Sets the stop event so the thread terminates on its next
-        iteration.  Does NOT join — joining blocks the async endpoint
-        for up to 2 s, which causes "Failed to Fetch" on the frontend.
-        The event is cleared lazily in set_active_thread() before the
-        next task starts.
-        """
+        """Signal background thread to stop."""
         self._stop_event.set()
+        if self._active_thread and self._active_thread.is_alive():
+            self._active_thread.join(timeout=2.0)
+        self._stop_event.clear()
     
     def should_stop(self) -> bool:
         """Check if background task should stop."""
         return self._stop_event.is_set()
     
     def set_active_thread(self, thread: threading.Thread):
-        # Clear previous stop signal so the new thread starts clean
-        self._stop_event.clear()
         self._active_thread = thread
 
 
@@ -540,7 +560,7 @@ def run_calibration(asset_id: str):
             _batch_detectors[asset_id] = batch_det
             print(f"[SYSTEM] BatchDetector trained on {len(batch_feature_rows)} windows (16-D features)")
         else:
-            print(f"[SYSTEM] WARNING: Only {len(batch_feature_rows)} batch windows - need 10+ for training")
+            print(f"[SYSTEM] WARNING: Only {len(batch_feature_rows)} batch windows — need 10+ for training")
         
         # CALIBRATION COMPLETE
         _state_manager.set_state(
@@ -709,10 +729,6 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
                     fault_batch_score = _batch_detectors[asset_id].score_raw_batch(raw_batch)
                 except Exception:
                     fault_batch_score = 0.5  # conservative fallback in fault mode
-
-            # Severity floor: guarantee minimum anomaly score for known faults
-            sev_floor = SEVERITY_FLOOR.get(severity.value, 0.0)
-            fault_batch_score = max(fault_batch_score, sev_floor)
 
             ds = _ensure_degradation_state(asset_id)
             old_di = ds["degradation_index"]
@@ -1065,6 +1081,10 @@ async def purge_and_recalibrate():
     _baselines.clear()
     _detectors.clear()
     _batch_detectors.clear()
+    # Cancel any pending hydration tasks
+    for task in _hydration_tasks.values():
+        task.cancel()
+    _hydration_tasks.clear()
     _degradation_state.clear()
 
     # 4. Reset state manager
