@@ -152,7 +152,12 @@ predictive-maintenance/
 │   │   ├── integration_routes.py # Health scoring, data history, events
 │   │   ├── operator_routes.py # Operator log endpoints
 │   │   ├── sandbox_routes.py  # What-If analysis
+│   │   ├── services.py      # Business logic helpers
 │   │   └── schemas.py       # Pydantic models
+│   ├── database.py          # InfluxDB client wrapper
+│   ├── config.py            # Settings & environment loader
+│   ├── storage/             # Blob/file storage abstraction
+│   ├── models/              # Saved ML model artifacts
 │   ├── features/            # Feature engineering
 │   │   ├── calculator.py    # 1Hz rolling means, spikes, RMS
 │   │   └── engine.py        # Feature extraction orchestrator
@@ -165,7 +170,7 @@ predictive-maintenance/
 │   ├── events/              # Event Engine
 │   │   └── engine.py        # State machine (HEALTHY ↔ ANOMALY_DETECTED)
 │   ├── rules/               # Business logic
-│   │   ├── assessor.py      # Health scoring & risk
+│   │   ├── assessor.py      # Health scoring, risk & cumulative degradation (DI)
 │   │   └── explainer.py     # Human-readable explanations
 │   ├── reports/             # PDF/Excel generation
 │   │   ├── generator.py         # Basic PDF/Excel reports
@@ -187,16 +192,20 @@ predictive-maintenance/
 │   │   │   ├── OperatorLog/
 │   │   │   ├── LogWatcher/      # Real-time event feed
 │   │   │   ├── SystemControlPanel/
+│   │   │   ├── StatusCard/
 │   │   │   ├── PerformanceCard/
 │   │   │   └── SandboxModal/
 │   │   ├── hooks/           # usePolling
 │   │   └── api/             # API client
 │   └── Dockerfile           # Multi-stage nginx build
 ├── scripts/
+│   ├── generate_data.py       # CLI data generator (healthy/faulty)
+│   ├── demo_pipeline.py       # End-to-end demo automation
+│   ├── benchmark_model.py     # Model performance benchmarking
 │   ├── retrain_batch_model.py # Standalone batch model retraining
-│   ├── setup_linux.sh       # Bare-metal Linux setup
-│   └── backend.service      # Systemd unit file
-├── tests/                   # 97+ unit tests
+│   ├── setup_linux.sh         # Bare-metal Linux setup
+│   └── backend.service        # Systemd unit file
+├── tests/                   # 182 unit tests
 ├── docker-compose.yml       # Full stack deployment
 ├── Dockerfile               # Backend container
 └── ENGINEERING_LOG.md       # Decision journal
@@ -401,22 +410,27 @@ pytest tests/ -v
 pytest tests/test_features.py -v
 pytest tests/test_detector.py -v
 pytest tests/test_assessor.py -v
+pytest tests/test_degradation.py -v
 pytest tests/test_reports.py -v
 
 # Coverage report
 pytest tests/ --cov=backend --cov-report=html
 ```
 
-**Test coverage by module:**
+**Test coverage by module (182 total):**
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
+| Cumulative Degradation | 37 | ✅ |
+| Health Assessment | 21 | ✅ |
+| Data Generator | 21 | ✅ |
 | Feature Engineering | 20 | ✅ |
+| API Validation | 17 | ✅ |
+| Reporting (PDF/Excel) | 15 | ✅ |
 | Baseline Construction | 14 | ✅ |
 | Anomaly Detection | 14 | ✅ |
-| Health Assessment | 21 | ✅ |
 | Explainability | 13 | ✅ |
-| Reporting | 15 | ✅ |
+| Storage | 10 | ✅ |
 
 ---
 
@@ -444,7 +458,7 @@ VITE_API_URL=https://predictive-maintenance-uhlb.onrender.com
 | Service | Port | Description |
 |---------|------|-------------|
 | `backend` | 8000 | FastAPI application |
-| `frontend` | 5173 | React dashboard (Vite dev server) |
+| `frontend` | 5173 | React dashboard (nginx, production build) |
 
 All services have `restart: unless-stopped` for resilience.
 

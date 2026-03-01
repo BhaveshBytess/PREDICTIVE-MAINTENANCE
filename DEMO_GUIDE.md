@@ -15,7 +15,7 @@
 ### Option B: Local Demo
 - [ ] Docker Desktop closed (we use local development)
 - [ ] 3 PowerShell terminals ready
-- [ ] Browser open to `http://localhost:5173`
+- [ ] Browser open to `http://localhost:3000`
 - [ ] This guide open on phone/second monitor
 
 ---
@@ -45,7 +45,7 @@ cd "c:\Users\oumme\OneDrive\Desktop\Predictive Maintenance"
 
 ### Open Browser
 **URL (Cloud):** `https://predictive-maintenance-ten.vercel.app/`
-**URL (Local):** `http://localhost:5173`
+**URL (Local):** `http://localhost:3000`
 
 ---
 
@@ -151,32 +151,31 @@ Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/data/simple' -Method Post -
 
 ## 🔄 STEP 4: DEMONSTRATE RECOVERY
 
-### Option A: Send Healthy Data
+> **Important:** The Degradation Index (DI) is **monotonic** — it never decreases by itself. Sending healthy data **stops further damage** but does NOT restore health. The only way to fully recover health is to **Purge & Re-Calibrate**.
+
+### Option A: Send Healthy Data (Stops Degradation)
 ```powershell
 python scripts/generate_data.py --asset_id Motor-01 --duration 10 --healthy
 ```
 
-### Option B: Purge & Re-Calibrate (Full Reset)
+**What to point out:**
+- DI **stops increasing** (damage rate drops to 0)
+- Health Score **stabilizes** at its current value (does NOT recover)
+- This demonstrates that healthy operation prevents further damage
+- To recover health, you must purge (see Option B)
+
+### Option B: Purge & Re-Calibrate (Full Reset — Only Way to Recover)
 Click the purple **"🗑️ Purge & Re-Calibrate"** button in the System Control Panel.
 
 > This writes DI=0.0 to InfluxDB, clears in-memory baselines/detectors/DI state, and resets the system to IDLE. Health returns to 100%. A confirmation dialog prevents accidental clicks.
 
 **What to point out:**
+- Health Score returns to **100%** (DI reset to 0.0)
 - System state returns to IDLE
 - All historical data is cleared
 - You can re-run calibration from scratch (Step 2)
+- This is the **only way** to recover health after degradation
 - Useful when stale data corrupts baselines during demos
-
-### Option C: Recovery via Healthy Data
-```powershell
-python scripts/generate_data.py --asset_id Motor-01 --duration 10 --healthy
-```
-
-**What to point out:**
-- Health Score recovers to 75+
-- Risk Level returns to LOW
-- **Red lines disappear** (system is healthy again!)
-- Baseline targets still visible on status cards
 
 ---
 
@@ -270,7 +269,7 @@ The dashboard has a blue button: **"📄 DOWNLOAD FULL REPORT (5-Page PDF)"**
 - [ ] Showed HIGH risk (multiple alerts)
 - [ ] Showed CRITICAL risk (extreme spike)
 - [ ] Showed cumulative degradation (~4-5 min from 100% to 0% under critical fault)
-- [ ] Showed recovery back to LOW via Purge & Re-Calibrate
+- [ ] Showed recovery back to 100% via Purge & Re-Calibrate (only recovery path)
 - [ ] Downloaded 5-page Industrial Report (PDF)
 - [ ] Downloaded Basic PDF with Cumulative Prognostics section
 - [ ] Explained ML anomaly detection + Degradation Index

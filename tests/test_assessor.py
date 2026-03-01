@@ -28,7 +28,7 @@ class TestHealthScoreComputation:
     """Test deterministic health score formula."""
 
     def test_health_formula_is_deterministic(self):
-        """Health = 100 * (1.0 - anomaly_score)."""
+        """Health uses confidence-boosted piecewise formula."""
         assessor = HealthAssessor()
         
         # anomaly_score 0 -> health 100
@@ -37,18 +37,22 @@ class TestHealthScoreComputation:
         # anomaly_score 1 -> health 0
         assert assessor.compute_health_score(1.0) == 0
         
-        # anomaly_score 0.5 -> health 50
-        assert assessor.compute_health_score(0.5) == 50
+        # anomaly_score 0.5 -> in the high-anomaly zone (0.35-1.0)
+        # health = 50 - ((0.5-0.35)/0.65)*50 ≈ 38
+        assert assessor.compute_health_score(0.5) == 38
         
-        # anomaly_score 0.25 -> health 75
-        assert assessor.compute_health_score(0.25) == 75
+        # anomaly_score 0.1 -> in healthy zone (<0.15)
+        # health = 100 - (0.1/0.15)*20 ≈ 87
+        assert assessor.compute_health_score(0.1) == 87
 
     def test_same_input_same_output(self):
         """Determinism: same input always gives same output."""
         assessor = HealthAssessor()
         
+        # anomaly_score 0.3 -> moderate zone (0.15-0.35)
+        # health = 80 - ((0.3-0.15)/0.20)*30 = 80 - 22.5 = 58 (rounded)
         for _ in range(10):
-            assert assessor.compute_health_score(0.3) == 70
+            assert assessor.compute_health_score(0.3) == 58
 
     def test_health_score_clamped(self):
         """Out-of-range anomaly scores are clamped."""
