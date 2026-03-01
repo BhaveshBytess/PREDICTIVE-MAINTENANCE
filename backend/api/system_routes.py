@@ -65,6 +65,7 @@ def _ensure_degradation_state(asset_id: str) -> Dict[str, Any]:
         "total_cycles": 0,
         "last_damage_rate": 0.0,
         "hydrated": True,
+        "total_anomaly_batches": 0,
     }
     _degradation_state[asset_id] = state
     print(f"[DEGRADATION] Hydrated {asset_id}: DI={last_di:.6f}")
@@ -431,8 +432,8 @@ def run_calibration(asset_id: str):
                     f"Generating training data... {i}/{BURST_SAMPLES}"
                 )
         
-        # Store in history (keep last 100 for display, full for training)
-        _sensor_history[asset_id] = burst_data[-100:]
+        # Store in history (keep last 1000 for report generation)
+        _sensor_history[asset_id] = burst_data[-1000:]
         _state_manager.set_training_samples(BURST_SAMPLES)
         
         # Phase 2: Build baseline from burst data
@@ -548,6 +549,8 @@ def run_calibration(asset_id: str):
             ds["degradation_index"] = new_di
             ds["total_cycles"] += 1
             ds["last_damage_rate"] = damage_rate
+            if is_batch_anomaly:
+                ds["total_anomaly_batches"] = ds.get("total_anomaly_batches", 0) + 1
 
             # Phase 20: Emit DI threshold events
             _rul = rul_from_degradation(new_di, damage_rate)
@@ -581,9 +584,9 @@ def run_calibration(asset_id: str):
             db.write_batch(measurement="sensor_events", points=batch_payload)
             print(f"[SYSTEM] Batch of 100 points written to InfluxDB (healthy_monitoring)")
             
-            # Keep only last 100 readings for display
-            if len(_sensor_history[asset_id]) > 100:
-                _sensor_history[asset_id] = _sensor_history[asset_id][-100:]
+            # Keep only last 1000 readings
+            if len(_sensor_history[asset_id]) > 1000:
+                _sensor_history[asset_id] = _sensor_history[asset_id][-1000:]
             
             time.sleep(1.0)
     
@@ -659,6 +662,8 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
             ds["degradation_index"] = new_di
             ds["total_cycles"] += 1
             ds["last_damage_rate"] = damage_rate
+            if is_anomaly:
+                ds["total_anomaly_batches"] = ds.get("total_anomaly_batches", 0) + 1
 
             # Phase 20: Emit DI threshold events
             _rul = rul_from_degradation(new_di, damage_rate)
@@ -696,9 +701,9 @@ def run_fault_injection(asset_id: str, fault_type: FaultType, severity: FaultSev
             db.write_batch(measurement="sensor_events", points=batch_payload)
             print(f"[SYSTEM] Batch of 100 points written to InfluxDB (fault_injection)")
             
-            # Keep only last 100 readings for display
-            if len(_sensor_history[asset_id]) > 100:
-                _sensor_history[asset_id] = _sensor_history[asset_id][-100:]
+            # Keep only last 1000 readings
+            if len(_sensor_history[asset_id]) > 1000:
+                _sensor_history[asset_id] = _sensor_history[asset_id][-1000:]
             
             time.sleep(1.0)
     
@@ -890,6 +895,8 @@ async def reset_system(
             resume_ds["degradation_index"] = resume_new_di
             resume_ds["total_cycles"] += 1
             resume_ds["last_damage_rate"] = resume_damage_rate
+            if is_anomaly:
+                resume_ds["total_anomaly_batches"] = resume_ds.get("total_anomaly_batches", 0) + 1
 
             # Phase 20: Emit DI threshold events
             _rul = rul_from_degradation(resume_new_di, resume_damage_rate)

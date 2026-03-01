@@ -143,6 +143,7 @@ def generate_pdf_report(
     degradation_index: Optional[float] = None,
     damage_rate: Optional[float] = None,
     rul_hours: Optional[float] = None,
+    lifetime_anomaly_batches: int = 0,
 ) -> bytes:
     """
     Generate Executive Summary PDF for Plant Managers.
@@ -242,9 +243,11 @@ def generate_pdf_report(
         total_runtime_hours = len(sensor_history) / 3600  # Rough estimate
         
         # Count anomalies/alerts (check both is_faulty and is_anomaly fields)
-        critical_alerts = sum(1 for r in sensor_history
+        history_alerts = sum(1 for r in sensor_history
                               if r.get('is_faulty', False) or r.get('is_anomaly', False)
                               or (r.get('anomaly_score') or 0) > 0.7)
+        # Use lifetime counter (persists across history trimming), fall back to history count
+        critical_alerts = max(lifetime_anomaly_batches, history_alerts)
     
     # Fetch maintenance logs
     all_logs = fetch_maintenance_logs_for_report(hours=168, asset_id=report.asset_id, limit=50)
@@ -457,6 +460,7 @@ def generate_excel_report(
     degradation_index: Optional[float] = None,
     damage_rate: Optional[float] = None,
     rul_hours: Optional[float] = None,
+    lifetime_anomaly_batches: int = 0,
 ) -> bytes:
     """
     Generate Multi-Sheet Excel Report for Analysts.
@@ -489,7 +493,9 @@ def generate_excel_report(
         currents = [r.get('current_a', 0) for r in sensor_history if r.get('current_a') is not None]
         max_current = max(currents) if currents else 0.0
         
-        total_anomalies = sum(1 for r in sensor_history if r.get('is_faulty', False) or r.get('is_anomaly', False))
+        history_anomalies = sum(1 for r in sensor_history if r.get('is_faulty', False) or r.get('is_anomaly', False))
+        # Use lifetime counter (persists across history trimming), fall back to history count
+        total_anomalies = max(lifetime_anomaly_batches, history_anomalies)
     
     # === SHEET 1: SUMMARY ===
     summary_metrics = [

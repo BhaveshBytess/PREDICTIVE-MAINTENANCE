@@ -303,7 +303,13 @@ async def get_health_status(asset_id: str):
         health_score = health_from_degradation(di)
         risk_level = risk_from_health(health_score)
         rul_hours = rul_from_degradation(di, damage_rate)
-        maintenance_days = round(rul_hours / 24.0, 1) if rul_hours < 99999.0 else 90.0
+        if rul_hours < 99999.0:
+            maintenance_days = round(rul_hours / 24.0, 1)
+        elif di > 0.01:
+            # No active fault but accumulated damage — scale window by remaining health
+            maintenance_days = round(max(7.0, (1.0 - di) ** 2 * 90.0), 1)
+        else:
+            maintenance_days = 90.0
 
         # Generate explanations from DI state
         generator = ExplanationGenerator(baseline)
@@ -491,16 +497,19 @@ async def download_report(
     di_val = None
     dr_val = None
     rul_val = None
+    lifetime_anomaly_batches = 0
     di_state = _degradation_state.get(asset_id)
     if di_state and di_state.get("hydrated"):
         di_val = di_state.get("degradation_index", 0.0)
         dr_val = di_state.get("last_damage_rate", 0.0)
         rul_val = rul_from_degradation(di_val, dr_val)
+        lifetime_anomaly_batches = di_state.get("total_anomaly_batches", 0)
     
     if format.lower() == "xlsx":
         content = generate_excel_report(
             report, sensor_data,
-            degradation_index=di_val, damage_rate=dr_val, rul_hours=rul_val
+            degradation_index=di_val, damage_rate=dr_val, rul_hours=rul_val,
+            lifetime_anomaly_batches=lifetime_anomaly_batches,
         )
         filename = generate_filename(asset_id, report.timestamp, "xlsx")
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -512,7 +521,8 @@ async def download_report(
     else:
         content = generate_pdf_report(
             report, sensor_data,
-            degradation_index=di_val, damage_rate=dr_val, rul_hours=rul_val
+            degradation_index=di_val, damage_rate=dr_val, rul_hours=rul_val,
+            lifetime_anomaly_batches=lifetime_anomaly_batches,
         )
         filename = generate_filename(asset_id, report.timestamp, "pdf")
         media_type = "application/pdf"
