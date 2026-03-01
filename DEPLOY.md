@@ -107,11 +107,13 @@ npm run dev
 | `/system/calibrate` | POST | Start calibration (builds baseline + legacy + batch ML models) |
 | `/system/inject-fault` | POST | Inject fault (type: spike/drift/jitter, severity: mild/medium/severe) |
 | `/system/reset` | POST | Reset to idle |
+| `/system/purge` | POST | Wipe all data + reset DI to 0.0 |
 | `/system/status/{asset_id}` | GET | Get system state (calibrating/monitoring/fault) |
-| `/api/v1/status/{asset_id}` | GET | Get asset status |
+| `/api/v1/status/{asset_id}` | GET | Get asset status (health, DI, RUL) |
 | `/api/v1/data/history/{asset_id}` | GET | Get sensor history + events + health scoring |
 | `/api/v1/report/{asset_id}` | GET | Generate PDF/Excel report (format: pdf/xlsx/industrial) |
 | `/sandbox/predict` | POST | What-If analysis |
+| `/ping` | GET | Keep-alive heartbeat (prevents Render cold starts) |
 
 ---
 
@@ -154,6 +156,10 @@ The `frontend/vercel.json` file handles API proxying:
     {
       "source": "/health",
       "destination": "https://predictive-maintenance-uhlb.onrender.com/health"
+    },
+    {
+      "source": "/ping",
+      "destination": "https://predictive-maintenance-uhlb.onrender.com/ping"
     }
   ]
 }
@@ -194,6 +200,12 @@ Error: Command "npm run build" exited with 126
 ### Render Cold Starts
 
 Free-tier Render services spin down after 15 minutes of inactivity. First request after idle may take 30-60 seconds.
+
+The frontend sends a 10-minute keep-alive ping to `/ping` automatically to prevent this during active browser sessions.
+
+### Degradation Index (DI) State
+
+The Cumulative Degradation Index is persisted to InfluxDB. On backend restart, DI is hydrated from InfluxDB via `|> last()`. The `POST /system/purge` endpoint writes DI=0.0 (InfluxDB Cloud Serverless v3 does not support range deletes).
 
 ### InfluxDB Token Scope
 
