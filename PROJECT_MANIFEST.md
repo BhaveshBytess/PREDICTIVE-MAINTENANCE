@@ -29,10 +29,10 @@
 | Field | Value |
 |-------|-------|
 | **Document ID** | `PM-MANIFEST-2026-001` |
-| **Version** | `3.1.0` |
+| **Version** | `3.2.0` |
 | **Status** | 🟢 **PRODUCTION** |
 | **Classification** | Internal / Portfolio |
-| **Last Updated** | 2026-02-21 |
+| **Last Updated** | 2026-03-01 |
 | **Author** | Systems Architecture Team |
 | **Review Cycle** | Quarterly |
 
@@ -202,6 +202,57 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
 
 ---
 
+### Feature 5: Cumulative Degradation Index (DI) Engine
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              MONOTONIC DEGRADATION INDEX (DI)                   │
+│                                                                 │
+│   DEAD-ZONE (HEALTHY_FLOOR = 0.65)                             │
+│   ─────────────────────────────────                             │
+│   batch_score < 0.65 → effective_severity = 0  (zero damage)   │
+│   batch_score ≥ 0.65 → effective_severity = (s - 0.65) / 0.35  │
+│                                                                 │
+│   CUMULATIVE DAMAGE (SENSITIVITY_CONSTANT = 0.005)             │
+│   ────────────────────────────────────────────                   │
+│   DI_inc = (effective_severity²) × 0.005 × dt                  │
+│   DI = min(DI + DI_inc, 1.0)   ← MONOTONIC, NEVER DECREASES   │
+│                                                                 │
+│   HEALTH & RUL DERIVED FROM DI                                 │
+│   ────────────────────────────                                   │
+│   health_score = 100 × (1.0 - DI)                              │
+│   RUL_hours = (1.0 - DI) / max(damage_rate, 1e-9)              │
+│                                                                 │
+│   ┌─────────────────────────────────────────────────────┐      │
+│   │  CRITICAL PROPERTIES                                │      │
+│   │  • Monotonic: DI never decreases (except on purge)  │      │
+│   │  • Dead-Zone: Healthy noise → zero damage            │      │
+│   │  • Hydration: DI recovered from InfluxDB on restart  │      │
+│   │  • Purge Reset: POST /system/purge writes DI=0.0     │      │
+│   │  • Timing: 100% → 0% in ~4-5 min under critical     │      │
+│   └─────────────────────────────────────────────────────┘      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why Monotonic DI:**
+- **Realistic Physics**: Industrial damage accumulates — a quiet minute doesn't erase a bearing crack.
+- **No False Recovery**: Instantaneous health scoring let operators believe equipment was "healed" when anomaly scores briefly dipped. DI prevents this.
+- **Dead-Zone**: IsolationForest produces batch_score 0.1–0.5 on perfectly healthy data (contamination=0.05). Without the 0.65 floor, healthy noise would phantom-accumulate damage.
+
+---
+
+### Feature 6: Report Enrichment with Prognostics
+
+All downloadable reports now include cumulative prognostics data:
+
+| Report Type | DI Content |
+|------------|------------|
+| **Executive PDF** (1-page) | Cumulative Prognostics section: DI%, Damage Rate, RUL |
+| **Multi-sheet Excel** | 3 new Summary rows: Degradation Index, Damage Rate, RUL |
+| **Industrial PDF** (5-page) | RUL days on executive summary page |
+
+---
+
 ## 📊 PERFORMANCE SPECIFICATIONS
 
 ### ML Model Performance
@@ -308,10 +359,13 @@ This system transforms traditional break-fix maintenance into a data-driven, pre
            │             └─────────────────────────────────────────────────┘
            ▼
     ┌──────────────┐     ┌─────────────────────────────────────────────────┐
-    │   HEALTH     │────▶│  RISK ASSESSMENT                                │
-    │  ASSESSOR    │     │  • Health Score: 0-100                          │
-    └──────┬───────┘     │  • Risk Levels: LOW → MODERATE → HIGH → CRITICAL│
-           │             │  • RUL Estimation: Heuristic lookup             │
+    │   HEALTH     │────▶│  RISK ASSESSMENT & DEGRADATION ENGINE            │
+    │  ASSESSOR    │     │  • Cumulative Degradation Index (DI): 0.0 → 1.0 │
+    └──────┬───────┘     │  • Health Score = 100 × (1.0 - DI)              │
+           │             │  • Risk Levels: LOW → MODERATE → HIGH → CRITICAL│
+           │             │  • RUL Projection: (1.0 - DI) / damage_rate     │
+           │             │  • Dead-Zone: HEALTHY_FLOOR = 0.65              │
+           │             │  • DI Hydration from InfluxDB on restart         │
            │             │  • Explainability: "Vibration 3.2σ above normal"│
            │             └─────────────────────────────────────────────────┘
            ▼
@@ -411,6 +465,8 @@ docker-compose up --build
 | `/api/v1/status/{asset}` | GET | Current health status |
 | `/api/v1/report/{asset}` | GET | Download PDF/Excel report |
 | `/sandbox/predict` | POST | What-If analysis |
+| `/system/purge` | POST | Wipe all data + reset DI to 0.0 |
+| `/ping` | GET | Keep-alive heartbeat (Render) |
 
 ---
 
@@ -421,7 +477,7 @@ docker-compose up --build
 <p align="center">
   <strong>PREDICTIVE MAINTENANCE SYSTEM</strong><br>
   <em>Digital Twin for Industrial Asset Intelligence</em><br>
-  <code>v3.0.0 | February 2026 | Production</code>
+  <code>v3.2.0 | March 2026 | Production</code>
 </p>
 
 <p align="center">
