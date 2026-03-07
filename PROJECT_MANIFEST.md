@@ -29,10 +29,10 @@
 | Field | Value |
 |-------|-------|
 | **Document ID** | `PM-MANIFEST-2026-001` |
-| **Version** | `3.2.0` |
+| **Version** | `3.2.1` |
 | **Status** | 🟢 **PRODUCTION** |
 | **Classification** | Internal / Portfolio |
-| **Last Updated** | 2026-03-01 |
+| **Last Updated** | 2026-03-07 |
 | **Author** | Systems Architecture Team |
 | **Review Cycle** | Quarterly |
 
@@ -250,6 +250,14 @@ All downloadable reports now include cumulative prognostics data:
 | **Executive PDF** (1-page) | Cumulative Prognostics section: DI%, Damage Rate, RUL |
 | **Multi-sheet Excel** | 3 new Summary rows: Degradation Index, Damage Rate, RUL |
 | **Industrial PDF** (5-page) | RUL days on executive summary page |
+
+### v3.2.1 Bug Fixes (Report Accuracy)
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| **Total Anomalies = 0** despite DI > 0 | After reset, healthy readings evicted all faulty data from in-memory history (capped at 100). Report counted 0. | Lifetime `total_anomaly_batches` counter in `_degradation_state` persists across history trimming. Reports use `max(lifetime, history_count)`. |
+| **Maintenance Window = 90 days** at 73% health | `damage_rate=0` → RUL=∞ → hardcoded 90 days regardless of accumulated DI | When RUL=∞ but DI > 1%: `maintenance_days = (1 − DI)² × 90`. DI=27% → 48 days. |
+| **History retention mismatch** (100 vs 1000) | Monitoring/fault loops trimmed to 100 readings; resume/simple_ingest kept 1000 | All paths unified to 1000 readings including calibration burst. |
 
 ---
 
@@ -477,7 +485,7 @@ docker-compose up --build
 <p align="center">
   <strong>PREDICTIVE MAINTENANCE SYSTEM</strong><br>
   <em>Digital Twin for Industrial Asset Intelligence</em><br>
-  <code>v3.2.0 | March 2026 | Production</code>
+  <code>v3.2.1 | March 2026 | Production</code>
 </p>
 
 <p align="center">
